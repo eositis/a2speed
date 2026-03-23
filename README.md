@@ -2,6 +2,8 @@
 Performance Benchmarking for the Apple II computer family
 Use this tool to get a general performance evaluation of your machine, accelerator or emulator.
 
+Download the a2speed.po file, for it on an image, or read the basic code in the applesoft folder.
+
 This is a work in progress. Currently supports the IIgs clock, No-slot-clock, TimeMaster and MegaFlash clocks.
 As of this writing, the software tests some basic math and computational functions in Applesoft.
 Future versions will also run the same tests coded in assembly.
