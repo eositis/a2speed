@@ -1,0 +1,151 @@
+10 REM A2SPEED - Apple II Performance Test (Applesoft)
+20 REM Timing via SPF-compatible clock driver (elapsed seconds)
+30 HOME
+31 D$ = CHR$(4)
+32 REM Save HIMEM before PR#/driver; restore at END so ProDOS buffers work on re-RUN
+33 HM = PEEK(115) + 256 * PEEK(116)
+34 PRINT D$"PR#0"
+35 PRINT D$"PR#3"
+36 REM 80-column display (IIe extended 80-col card, usually slot 3)
+37 HOME
+38 PRINT "A2SPEED - Apple II Benchmarks (Applesoft)"
+39 PRINT "=============================================="
+40 REM Driver load $7000; CD/RD/CK/CS/TN MUST match applesoft/clockdrv.lst after each ca65/ld65 build
+45 CD = 28672: RD = 28750: TN = 30071: CK = 29814: CS = 29623
+50 GOTO 400
+55 REM (unused)
+100 REM Timed CPU speed: GOSUB 102. SN=25000 empty FOR/NEXT; REFI=iter/s stock 1.02MHz IIe
+102 SN = 25000: REFI = 520
+103 GOSUB 130: T1 = T
+104 FOR I = 1 TO SN: NEXT I
+105 GOSUB 130: T2 = T: GOSUB 140
+106 IF E <= 0 THEN PRINT "Timed speed: (invalid elapsed)": RETURN
+107 SP = SN / E
+108 MHZ = SP / REFI * 1.02
+109 MHZ = INT(MHZ * 100 + 0.5) / 100
+110 PRINT "Timed speed: "; INT(SP + 0.5); " iter/s, ~"; MHZ; " MHz eq (REFI "; REFI; ")"
+111 RETURN
+130 REM ----- Read time as decimal seconds (CALL CLOCK_READ -> TimeNow) -----
+131 CALL RD
+132 T = PEEK(TN) * 3600 + PEEK(TN + 1) * 60 + PEEK(TN + 2) + PEEK(TN + 3) / 100
+135 RETURN
+140 REM ----- Elapsed seconds (T1,T2 from GOSUB 130); sets E, EL -----
+145 E = T2 - T1
+146 IF E < 0 THEN IF E > -1800 THEN E = -E ELSE E = E + 86400
+147 EL = INT(E * 100 + 0.5) / 100
+150 REM EL = nearest 0.01 s; small negative E uses -E; else +86400 midnight wrap.
+155 RETURN
+160 REM ----- Print wall time T as HH:MM:SS.ss (nearest hundredth second) -----
+162 TH = INT(T / 3600)
+164 TM = INT((T - TH * 3600) / 60)
+166 TS = T - TH * 3600 - TM * 60
+168 TSD = INT(TS * 100 + 0.5) / 100
+170 PRINT TH;":";TM;":";TSD;
+172 RETURN
+173 REM ----- T -> T$ (HH:MM:SS.s); same as 160, for LEN-based columns (POS fails in 80-col)
+174 TH = INT(T / 3600)
+175 TM = INT((T - TH * 3600) / 60)
+176 TS = T - TH * 3600 - TM * 60
+177 TSD = INT(TS * 100 + 0.5) / 100
+178 T$ = STR$(TH) + ":" + STR$(TM) + ":" + STR$(TSD)
+182 RETURN
+184 IF T2 >= T1 THEN T = T2: GOTO 192
+185 IF T1 - T2 >= 1800 THEN T = T2: GOTO 192
+186 T = T1 + E
+187 IF T >= 86400 THEN T = T - 86400
+192 RETURN
+194 REM ----- One line: test name + elapsed only (80-col; LEN-based SPC; no POS) -----
+195 SP = 48 - LEN(L$): IF SP < 2 THEN SP = 2
+196 PRINT L$; SPC(SP); EL; " s"
+197 RETURN
+400 REM ========== CLOCK DRIVER (ProDOS) ==========
+405 PRINT : PRINT "--- CLOCK / DRIVER ---"
+410 D$ = CHR$(4)
+420 PRINT D$"BLOAD CLOCKDRV,A$7000"
+422 HIMEM: 28671
+425 REM CLOCK_INIT: IIgs, ROMX, MegaFlash, NoSlotClock, TimeMaster (order)
+426 CALL CD
+430 K = PEEK(CK)
+432 TS = PEEK(CS)
+435 IF K = 1 THEN PRINT "Clock backend: IIgs built-in - ready"
+440 IF K = 2 THEN PRINT "Clock backend: ROMX - ready"
+445 IF K = 3 THEN PRINT "Clock backend: MegaFlash - ready"
+450 IF K = 4 THEN PRINT "Clock backend: No-Slot Clock - ready"
+455 IF K = 5 THEN PRINT "Clock backend: TimeMaster II slot ";TS;" - ready"
+465 IF K = 0 THEN PRINT "Clock backend: none detected - wall time unavailable"
+468 REM ----- Processor / machine (IIgs from clock K; else ROM ID $FBB3 = 64435) -----
+469 REM MHz: IIgs 65816 ~2.8 MHz; NTSC 6502/65C02 ~1.02 MHz (14.31818/14); unknown ~1.0
+470 IF K = 1 THEN PRINT "Processor: 65816 (Apple IIgs) ~2.8 MHz est."
+471 IF K = 1 THEN GOTO 490
+472 MB = PEEK(64435)
+473 MACH$ = "Apple II family"
+474 CPU$ = "6502"
+475 MH$ = "~1.0 MHz est."
+476 IF MB = 6 THEN MACH$ = "Apple IIe": CPU$ = "65C02": MH$ = "~1.02 MHz est."
+477 IF MB = 234 THEN MACH$ = "Apple II Plus": MH$ = "~1.02 MHz est."
+478 IF MB = 0 THEN MACH$ = "Apple IIc (or IIc+)": CPU$ = "65C02": MH$ = "~1.02 MHz est."
+485 PRINT "Processor: ";CPU$;" (";MACH$;") ";MH$
+490 IF K = 0 THEN PRINT "Timed speed: N/A (no wall clock)": GOTO 500
+491 GOSUB 102
+492 GOTO 500
+500 REM ========== MATH BENCHMARKS ==========
+505 PRINT : PRINT "--- MATH ---"
+508 REM Header: TEST + ELAPSED (LEN-based SPC)
+509 PRINT "TEST"; SPC(44); "ELAPSED"
+515 N = 5000
+520 GOSUB 130: T1 = T
+525 A = 0: FOR I = 1 TO N: A = A + 1: NEXT I
+532 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+533 TE = T
+534 L$ = "Integer add (1 to " + STR$(N) + ")": GOSUB 194
+545 GOSUB 130: T1 = T
+550 X = 0: FOR I = 1 TO N: X = X + 1.0: NEXT I
+557 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+558 TE = T
+559 L$ = "Float add (1 to " + STR$(N) + ")": GOSUB 194
+565 N = 1500
+572 GOSUB 130: T1 = T
+575 Y = 1: FOR I = 1 TO N: Y = Y * 1.001: NEXT I
+582 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+583 TE = T
+584 L$ = "Float mul (1.001^" + STR$(N) + ")": GOSUB 194
+595 M = 500
+598 GOSUB 130: T1 = T
+600 FOR I = 1 TO M: Z = SIN(1): Z = COS(1): NEXT I
+607 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+608 TE = T
+609 L$ = "SIN/COS x" + STR$(M): GOSUB 194
+622 GOSUB 130: T1 = T
+625 FOR I = 1 TO N: Z = SQR(2): NEXT I
+632 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+633 TE = T
+634 L$ = "SQR(2) x" + STR$(N): GOSUB 194
+640 REM ========== COMPUTE BENCHMARKS ==========
+645 PRINT : PRINT "--- COMPUTE ---"
+648 PRINT "TEST"; SPC(44); "ELAPSED"
+655 N = 10000
+656 GOSUB 130: T1 = T
+665 FOR I = 1 TO N: NEXT I
+677 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+678 TE = T
+679 L$ = "Empty loop " + STR$(N): GOSUB 194
+695 DIM A(255): N = 10
+702 GOSUB 130: T1 = T
+715 FOR J = 1 TO N: FOR I = 0 TO 255: A(I) = I: NEXT I: NEXT J
+727 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+728 TE = T
+729 L$ = "Array fill 256 x" + STR$(N): GOSUB 194
+742 GOSUB 130: T1 = T
+745 S = 0
+755 FOR J = 1 TO N: S = 0: FOR I = 0 TO 255: S = S + A(I): NEXT I: NEXT J
+767 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
+768 TE = T
+769 L$ = "Array sum 256 x" + STR$(N): GOSUB 194
+785 REM ========== SUMMARY ==========
+790 PRINT : PRINT "Done."
+791 REM ProDOS cleanup: restore HIMEM (115/116), PR#0, CLOSE (avoids NO BUFFERS on re-RUN)
+792 POKE 115, HM - INT(HM / 256) * 256
+793 POKE 116, INT(HM / 256)
+794 PRINT D$"PR#0"
+795 PRINT D$"CLOSE"
+800 END
