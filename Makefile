@@ -28,12 +28,19 @@ AC_JAR ?= $(wildcard $(AC_INSTALL))
 LOAD_ADDR := 0x803
 # SPF-based clock driver for Applesoft ( machine code; GPLv2 — same as SPF gettime.asm )
 CLK_ADDR := 0x7000
+BENCHML_ADDR := 0x6000
 DISK_IMAGE := a2speed.po
 VOL_NAME := A2SPEED
 
 .PHONY: all clean disk applesoft_drv
 
-all: cc65/a2speed_6502.po cc65/a2speed_65c02.po applesoft_drv
+all: cc65/a2speed_6502.po cc65/a2speed_65c02.po applesoft_drv applesoft/benchml.bin
+
+applesoft/a2benchml.o: applesoft/a2benchml.s
+	$(CA65) -t none -l applesoft/benchml.lst $< -o $@
+
+applesoft/benchml.bin: applesoft/a2benchml.o applesoft/benchml.cfg
+	$(LD65) -C applesoft/benchml.cfg $< -m applesoft/benchml.map -o $@
 
 applesoft/clockdrv.o: applesoft/clockdrv.s $(SPF)/src/prodos/gettime.asm
 	$(CA65) -t none -I $(SPF)/src/prodos -l applesoft/clockdrv.lst applesoft/clockdrv.s -o $@
@@ -53,7 +60,7 @@ cc65/a2speed_65c02.po: $(addprefix cc65/,$(SRC)) cc65/a2speed.h
 # Set AC_JAR to the path of AppleCommander ac.jar, e.g.:
 #   make disk AC_JAR=/path/to/AppleCommander-ac.jar
 #   make disk AC_JAR=../spf/build/lib/AppleCommander-1.3.5.13-ac.jar
-disk: all applesoft_drv
+disk: applesoft_drv applesoft/benchml.bin
 	@if [ -z "$(AC_JAR)" ]; then \
 		echo "Set AC_JAR to the path of AppleCommander ac.jar, e.g.:"; \
 		echo "  make disk AC_JAR=/path/to/AppleCommander-ac.jar"; \
@@ -63,14 +70,13 @@ disk: all applesoft_drv
 	java -jar "$(AC_JAR)" -pro140 $(DISK_IMAGE) $(VOL_NAME)
 	@echo "Adding Applesoft A2SPEED..."
 	cat applesoft/A2SPEED.bas | java -jar "$(AC_JAR)" -bas $(DISK_IMAGE) A2SPEED
+	@echo "Adding BENCHML (ML benchmark; A2SPEED CALL)..."
+	java -jar "$(AC_JAR)" -p $(DISK_IMAGE) BENCHML BIN $(BENCHML_ADDR) < applesoft/benchml.bin
 	@echo "Adding CLOCKDRV (SPF-compatible clock support)..."
 	java -jar "$(AC_JAR)" -p $(DISK_IMAGE) CLOCKDRV BIN $(CLK_ADDR) < applesoft/clockdrv.bin
-	@echo "Adding A2SPEED_6502..."
-	java -jar "$(AC_JAR)" -p $(DISK_IMAGE) A2SPEED_6502 BIN $(LOAD_ADDR) < cc65/a2speed_6502.po
-	@echo "Adding A2SPEED_65C02..."
-	java -jar "$(AC_JAR)" -p $(DISK_IMAGE) A2SPEED_65C02 BIN $(LOAD_ADDR) < cc65/a2speed_65c02.po
 	@echo "Disk image: $(DISK_IMAGE) (volume /$(VOL_NAME)/)"
 
 clean:
 	rm -f cc65/a2speed_6502.po cc65/a2speed_65c02.po cc65/*.o $(DISK_IMAGE)
 	rm -f applesoft/clockdrv.bin applesoft/clockdrv.o applesoft/clockdrv.map
+	rm -f applesoft/benchml.bin applesoft/a2benchml.o applesoft/benchml.map applesoft/benchml.lst

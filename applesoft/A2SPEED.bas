@@ -1,17 +1,17 @@
 10 REM A2SPEED - Apple II Performance Test (Applesoft)
 20 REM Timing via SPF-compatible clock driver (elapsed seconds)
 30 HOME
-31 D$ = CHR$(4)
-32 REM Save HIMEM before PR#/driver; restore at END so ProDOS buffers work on re-RUN
-33 HM = PEEK(115) + 256 * PEEK(116)
-34 PRINT D$"PR#0"
-35 PRINT D$"PR#3"
+31 REM Save default HIMEM. Lower it after BLOADs but before string-heavy setup.
+32 HM = PEEK(115) + 256 * PEEK(116)
+34 PRINT CHR$(4)"PR#0"
+35 PRINT CHR$(4)"PR#3"
 36 REM 80-column display (IIe extended 80-col card, usually slot 3)
 37 HOME
 38 PRINT "A2SPEED - Apple II Benchmarks (Applesoft)"
 39 PRINT "=============================================="
 40 REM Driver load $7000; CD/RD/CK/CS/TN MUST match applesoft/clockdrv.lst after each ca65/ld65 build
 45 CD = 28672: RD = 28750: TN = 30071: CK = 29814: CS = 29623
+46 CA = 24576: PA = 24579: REM Applesoft: only 1st 2 name chars matter — ML/MLP both "ML"; CA/PA differ
 50 GOTO 400
 55 REM (unused)
 100 REM Timed CPU speed: GOSUB 102. SN=25000 empty FOR/NEXT; REFI=iter/s stock 1.02MHz IIe
@@ -54,15 +54,32 @@
 186 T = T1 + E
 187 IF T >= 86400 THEN T = T - 86400
 192 RETURN
-194 REM ----- One line: test name + elapsed only (80-col; LEN-based SPC; no POS) -----
-195 SP = 48 - LEN(L$): IF SP < 2 THEN SP = 2
-196 PRINT L$; SPC(SP); EL; " s"
-197 RETURN
+194 REM ----- One row: fixed cols (POS fails in 80-col); label 32 + time CW + time CW -----
+195 P1$ = MID$(L$ + PS32$, 1, 32)
+196 SF = ES: GOSUB 226: A1$ = TF$
+197 SF = EM: GOSUB 226: A2$ = TF$
+198 PRINT P1$; A1$; A2$
+199 RETURN
+200 REM ----- ML bench: BO,N,M; POKE PA..; CALL CA; sets EM (EL2 aliases EL in Applesoft)
+220 POKE PA, BO
+221 POKE PA + 1, N - 256 * INT(N / 256): POKE PA + 2, INT(N / 256)
+222 POKE PA + 3, M - 256 * INT(M / 256): POKE PA + 4, INT(M / 256)
+223 GOSUB 130: T3 = T: CALL CA: GOSUB 130: T4 = T
+224 T1 = T3: T2 = T4: GOSUB 140: EM = EL
+225 RETURN
+226 REM ----- TF$: pad STR$(SF)+" s" to width CW (for aligned AppleSoft / ML columns) -----
+227 TF$ = STR$(SF) + " s"
+228 IF LEN(TF$) > CW THEN TF$ = MID$(TF$, LEN(TF$) - CW + 1, CW)
+229 IF LEN(TF$) < CW THEN TF$ = " " + TF$: GOTO 229
+230 RETURN
 400 REM ========== CLOCK DRIVER (ProDOS) ==========
 405 PRINT : PRINT "--- CLOCK / DRIVER ---"
-410 D$ = CHR$(4)
-420 PRINT D$"BLOAD CLOCKDRV,A$7000"
-422 HIMEM: 28671
+418 PRINT CHR$(4)"BLOAD BENCHML,A$6000"
+420 PRINT CHR$(4)"BLOAD CLOCKDRV,A$7000"
+421 REM After BLOADs, lower HIMEM before allocating strings so BASIC stays below BENCHML.
+422 HIMEM: 24576
+423 PS32$ = "": FOR IX = 1 TO 32: PS32$ = PS32$ + " ": NEXT IX: CW = 12: REM pad string; time column width
+424 REM Do not raise HIMEM to $6FFF — Applesoft heap/string space will overwrite BENCHML.
 425 REM CLOCK_INIT: IIgs, ROMX, MegaFlash, NoSlotClock, TimeMaster (order)
 426 CALL CD
 430 K = PEEK(CK)
@@ -90,62 +107,63 @@
 492 GOTO 500
 500 REM ========== MATH BENCHMARKS ==========
 505 PRINT : PRINT "--- MATH ---"
-508 REM Header: TEST + ELAPSED (LEN-based SPC)
-509 PRINT "TEST"; SPC(44); "ELAPSED"
+508 REM Same widths as GOSUB 194: 32 + 12 + 12
+509 H1$ = MID$("TEST" + PS32$, 1, 32): H2$ = "   AppleSoft": H3$ = "          ML": PRINT H1$; H2$; H3$
 515 N = 5000
 520 GOSUB 130: T1 = T
 525 A = 0: FOR I = 1 TO N: A = A + 1: NEXT I
 532 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-533 TE = T
+533 ES = EL: BO = 1: GOSUB 220
 534 L$ = "Integer add (1 to " + STR$(N) + ")": GOSUB 194
 545 GOSUB 130: T1 = T
 550 X = 0: FOR I = 1 TO N: X = X + 1.0: NEXT I
 557 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-558 TE = T
+558 ES = EL: BO = 2: GOSUB 220
 559 L$ = "Float add (1 to " + STR$(N) + ")": GOSUB 194
 565 N = 1500
 572 GOSUB 130: T1 = T
 575 Y = 1: FOR I = 1 TO N: Y = Y * 1.001: NEXT I
 582 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-583 TE = T
+583 ES = EL: BO = 3: GOSUB 220
 584 L$ = "Float mul (1.001^" + STR$(N) + ")": GOSUB 194
 595 M = 500
 598 GOSUB 130: T1 = T
 600 FOR I = 1 TO M: Z = SIN(1): Z = COS(1): NEXT I
 607 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-608 TE = T
+608 ES = EL: BO = 4: GOSUB 220
 609 L$ = "SIN/COS x" + STR$(M): GOSUB 194
+620 N = 500
 622 GOSUB 130: T1 = T
 625 FOR I = 1 TO N: Z = SQR(2): NEXT I
 632 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-633 TE = T
+633 ES = EL: BO = 5: GOSUB 220
 634 L$ = "SQR(2) x" + STR$(N): GOSUB 194
 640 REM ========== COMPUTE BENCHMARKS ==========
 645 PRINT : PRINT "--- COMPUTE ---"
-648 PRINT "TEST"; SPC(44); "ELAPSED"
+648 H1$ = MID$("TEST" + PS32$, 1, 32): H2$ = "   AppleSoft": H3$ = "          ML": PRINT H1$; H2$; H3$
 655 N = 10000
 656 GOSUB 130: T1 = T
 665 FOR I = 1 TO N: NEXT I
 677 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-678 TE = T
+678 ES = EL: BO = 6: GOSUB 220
 679 L$ = "Empty loop " + STR$(N): GOSUB 194
 695 DIM A(255): N = 10
 702 GOSUB 130: T1 = T
 715 FOR J = 1 TO N: FOR I = 0 TO 255: A(I) = I: NEXT I: NEXT J
 727 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-728 TE = T
+728 ES = EL: BO = 7: GOSUB 220
 729 L$ = "Array fill 256 x" + STR$(N): GOSUB 194
 742 GOSUB 130: T1 = T
 745 S = 0
 755 FOR J = 1 TO N: S = 0: FOR I = 0 TO 255: S = S + A(I): NEXT I: NEXT J
 767 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-768 TE = T
+768 ES = EL: BO = 8: GOSUB 220
 769 L$ = "Array sum 256 x" + STR$(N): GOSUB 194
 785 REM ========== SUMMARY ==========
 790 PRINT : PRINT "Done."
 791 REM ProDOS cleanup: restore HIMEM (115/116), PR#0, CLOSE (avoids NO BUFFERS on re-RUN)
 792 POKE 115, HM - INT(HM / 256) * 256
 793 POKE 116, INT(HM / 256)
-794 PRINT D$"PR#0"
-795 PRINT D$"CLOSE"
+794 PRINT CHR$(4)"PR#0"
+795 PRINT CHR$(4)"CLOSE"
 800 END

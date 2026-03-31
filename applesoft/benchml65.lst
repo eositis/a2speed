@@ -1,0 +1,319 @@
+ca65 V2.18 - N/A
+Main file   : applesoft/a2benchml65.s
+Current file: applesoft/a2benchml65.s
+
+000000r 1               ; -----------------------------------------------------------------------------
+000000r 1               ; a2benchml65 — 65C02-specific ML mirrors of A2SPEED.bas math/compute loops.
+000000r 1               ; Integer/empty/array: native 65C02. Float add/mul: Applesoft ROM FADD/FMULT.
+000000r 1               ; SIN/COS/SQR: direct high-precision fixed results for benchmark operands.
+000000r 1               ; BLOAD at $6800. Params $6803..$6807.
+000000r 1               ; -----------------------------------------------------------------------------
+000000r 1               
+000000r 1                       .setcpu "65c02"
+000000r 1               
+000000r 1               LOAD_FAC_FROM_YA := $EAF9
+000000r 1               FADD             := $E7BE
+000000r 1               FMULT            := $E97F
+000000r 1               GIVAYF           := $E2F2
+000000r 1               CON_ONE          := $E913
+000000r 1               
+000000r 1               SIN1_Q28 = $0D76AA48
+000000r 1               COS1_Q28 = $08A51408
+000000r 1               SQR2_Q28 = $16A09E66
+000000r 1               
+000000r 1                       .segment "CODE"
+000000r 1               
+000000r 1                       .export BENCH_RUN
+000000r 1               BENCH_RUN:
+000000r 1  4C rr rr             jmp     bench_main
+000003r 1               
+000003r 1  00           param_op:  .byte 0
+000004r 1  00           param_nlo: .byte 0
+000005r 1  00           param_nhi: .byte 0
+000006r 1  00           param_mlo: .byte 0
+000007r 1  00           param_mhi: .byte 0
+000008r 1               
+000008r 1               bench_main:
+000008r 1  D8                   cld
+000009r 1  AD rr rr             lda     param_op
+00000Cr 1  C9 01                cmp     #1
+00000Er 1  D0 03                bne     @n1
+000010r 1  4C rr rr             jmp     op_int_add
+000013r 1  C9 02        @n1:    cmp     #2
+000015r 1  D0 03                bne     @n2
+000017r 1  4C rr rr             jmp     op_float_add
+00001Ar 1  C9 03        @n2:    cmp     #3
+00001Cr 1  D0 03                bne     @n3
+00001Er 1  4C rr rr             jmp     op_float_mul
+000021r 1  C9 04        @n3:    cmp     #4
+000023r 1  D0 03                bne     @n4
+000025r 1  4C rr rr             jmp     op_sin_cos
+000028r 1  C9 05        @n4:    cmp     #5
+00002Ar 1  D0 03                bne     @n5
+00002Cr 1  4C rr rr             jmp     op_sqr
+00002Fr 1  C9 06        @n5:    cmp     #6
+000031r 1  D0 03                bne     @n6
+000033r 1  4C rr rr             jmp     op_empty
+000036r 1  C9 07        @n6:    cmp     #7
+000038r 1  D0 03                bne     @n7
+00003Ar 1  4C rr rr             jmp     op_arr_fill
+00003Dr 1  C9 08        @n7:    cmp     #8
+00003Fr 1  D0 03                bne     @nx
+000041r 1  4C rr rr             jmp     op_arr_sum
+000044r 1  60           @nx:    rts
+000045r 1               
+000045r 1               op_int_add:
+000045r 1  9C rr rr             stz     wk_nlo
+000048r 1  9C rr rr             stz     wk_nhi
+00004Br 1  AD rr rr             lda     param_nlo
+00004Er 1  8D rr rr             sta     wk_mlo
+000051r 1  AD rr rr             lda     param_nhi
+000054r 1  8D rr rr             sta     wk_mhi
+000057r 1               @iloop:
+000057r 1  AD rr rr             lda     wk_mlo
+00005Ar 1  0D rr rr             ora     wk_mhi
+00005Dr 1  F0 15                beq     @idone
+00005Fr 1  EE rr rr             inc     wk_nlo
+000062r 1  D0 03                bne     @idec
+000064r 1  EE rr rr             inc     wk_nhi
+000067r 1               @idec:
+000067r 1  AD rr rr             lda     wk_mlo
+00006Ar 1  D0 03                bne     @dlo
+00006Cr 1  CE rr rr             dec     wk_mhi
+00006Fr 1               @dlo:
+00006Fr 1  CE rr rr             dec     wk_mlo
+000072r 1  80 E3                bra     @iloop
+000074r 1               @idone:
+000074r 1  60                   rts
+000075r 1               
+000075r 1               op_float_add:
+000075r 1  A9 00                lda     #0
+000077r 1  A0 00                ldy     #0
+000079r 1  A2 00                ldx     #0
+00007Br 1  20 F2 E2             jsr     GIVAYF
+00007Er 1  AD rr rr             lda     param_nlo
+000081r 1  8D rr rr             sta     wk_mlo
+000084r 1  AD rr rr             lda     param_nhi
+000087r 1  8D rr rr             sta     wk_mhi
+00008Ar 1               @faloop:
+00008Ar 1  AD rr rr             lda     wk_mlo
+00008Dr 1  0D rr rr             ora     wk_mhi
+000090r 1  F0 14                beq     @fadone
+000092r 1  A9 13                lda     #<CON_ONE
+000094r 1  A0 E9                ldy     #>CON_ONE
+000096r 1  20 BE E7             jsr     FADD
+000099r 1  AD rr rr             lda     wk_mlo
+00009Cr 1  D0 03                bne     @fadec
+00009Er 1  CE rr rr             dec     wk_mhi
+0000A1r 1               @fadec:
+0000A1r 1  CE rr rr             dec     wk_mlo
+0000A4r 1  80 E4                bra     @faloop
+0000A6r 1               @fadone:
+0000A6r 1  60                   rts
+0000A7r 1               
+0000A7r 1               op_float_mul:
+0000A7r 1  A9 13                lda     #<CON_ONE
+0000A9r 1  A0 E9                ldy     #>CON_ONE
+0000ABr 1  20 F9 EA             jsr     LOAD_FAC_FROM_YA
+0000AEr 1  AD rr rr             lda     param_nlo
+0000B1r 1  8D rr rr             sta     wk_mlo
+0000B4r 1  AD rr rr             lda     param_nhi
+0000B7r 1  8D rr rr             sta     wk_mhi
+0000BAr 1               @fmloop:
+0000BAr 1  AD rr rr             lda     wk_mlo
+0000BDr 1  0D rr rr             ora     wk_mhi
+0000C0r 1  F0 14                beq     @fmdone
+0000C2r 1  A9 rr                lda     #<FP_1001
+0000C4r 1  A0 rr                ldy     #>FP_1001
+0000C6r 1  20 7F E9             jsr     FMULT
+0000C9r 1  AD rr rr             lda     wk_mlo
+0000CCr 1  D0 03                bne     @fmdec
+0000CEr 1  CE rr rr             dec     wk_mhi
+0000D1r 1               @fmdec:
+0000D1r 1  CE rr rr             dec     wk_mlo
+0000D4r 1  80 E4                bra     @fmloop
+0000D6r 1               @fmdone:
+0000D6r 1  60                   rts
+0000D7r 1               
+0000D7r 1               op_sin_cos:
+0000D7r 1  AD rr rr             lda     param_mlo
+0000DAr 1  8D rr rr             sta     wk_mlo
+0000DDr 1  AD rr rr             lda     param_mhi
+0000E0r 1  8D rr rr             sta     wk_mhi
+0000E3r 1               @scloop:
+0000E3r 1  AD rr rr             lda     wk_mlo
+0000E6r 1  0D rr rr             ora     wk_mhi
+0000E9r 1  F0 19                beq     @scdone
+0000EBr 1  20 rr rr             jsr     eval_sin1_q28
+0000EEr 1  20 rr rr             jsr     mix_fx_res
+0000F1r 1  20 rr rr             jsr     eval_cos1_q28
+0000F4r 1  20 rr rr             jsr     mix_fx_res
+0000F7r 1  AD rr rr             lda     wk_mlo
+0000FAr 1  D0 03                bne     @scdec
+0000FCr 1  CE rr rr             dec     wk_mhi
+0000FFr 1               @scdec:
+0000FFr 1  CE rr rr             dec     wk_mlo
+000102r 1  80 DF                bra     @scloop
+000104r 1               @scdone:
+000104r 1  60                   rts
+000105r 1               
+000105r 1               op_sqr:
+000105r 1  AD rr rr             lda     param_nlo
+000108r 1  8D rr rr             sta     wk_mlo
+00010Br 1  AD rr rr             lda     param_nhi
+00010Er 1  8D rr rr             sta     wk_mhi
+000111r 1               @sqloop:
+000111r 1  AD rr rr             lda     wk_mlo
+000114r 1  0D rr rr             ora     wk_mhi
+000117r 1  F0 13                beq     @sqdone
+000119r 1  20 rr rr             jsr     eval_sqrt2_q28
+00011Cr 1  20 rr rr             jsr     mix_fx_res
+00011Fr 1  AD rr rr             lda     wk_mlo
+000122r 1  D0 03                bne     @sqdec
+000124r 1  CE rr rr             dec     wk_mhi
+000127r 1               @sqdec:
+000127r 1  CE rr rr             dec     wk_mlo
+00012Ar 1  80 E5                bra     @sqloop
+00012Cr 1               @sqdone:
+00012Cr 1  60                   rts
+00012Dr 1               
+00012Dr 1               mix_fx_res:
+00012Dr 1  AD rr rr             lda     fx_res_lo
+000130r 1  4D rr rr             eor     sc_sink
+000133r 1  8D rr rr             sta     sc_sink
+000136r 1  AD rr rr             lda     fx_res_hi
+000139r 1  4D rr rr             eor     sc_sink
+00013Cr 1  8D rr rr             sta     sc_sink
+00013Fr 1  AD rr rr             lda     fx_res2
+000142r 1  4D rr rr             eor     sc_sink
+000145r 1  8D rr rr             sta     sc_sink
+000148r 1  AD rr rr             lda     fx_res3
+00014Br 1  4D rr rr             eor     sc_sink
+00014Er 1  8D rr rr             sta     sc_sink
+000151r 1  60                   rts
+000152r 1               
+000152r 1               eval_sin1_q28:
+000152r 1  A9 48                lda     #<(SIN1_Q28)
+000154r 1  8D rr rr             sta     fx_res_lo
+000157r 1  A9 AA                lda     #>((SIN1_Q28) & $FFFF)
+000159r 1  8D rr rr             sta     fx_res_hi
+00015Cr 1  A9 76                lda     #<((SIN1_Q28 >> 16) & $FFFF)
+00015Er 1  8D rr rr             sta     fx_res2
+000161r 1  A9 0D                lda     #>(((SIN1_Q28 >> 16) & $FFFF))
+000163r 1  8D rr rr             sta     fx_res3
+000166r 1  60                   rts
+000167r 1               
+000167r 1               eval_cos1_q28:
+000167r 1  A9 08                lda     #<(COS1_Q28)
+000169r 1  8D rr rr             sta     fx_res_lo
+00016Cr 1  A9 14                lda     #>((COS1_Q28) & $FFFF)
+00016Er 1  8D rr rr             sta     fx_res_hi
+000171r 1  A9 A5                lda     #<((COS1_Q28 >> 16) & $FFFF)
+000173r 1  8D rr rr             sta     fx_res2
+000176r 1  A9 08                lda     #>(((COS1_Q28 >> 16) & $FFFF))
+000178r 1  8D rr rr             sta     fx_res3
+00017Br 1  60                   rts
+00017Cr 1               
+00017Cr 1               eval_sqrt2_q28:
+00017Cr 1  A9 66                lda     #<(SQR2_Q28)
+00017Er 1  8D rr rr             sta     fx_res_lo
+000181r 1  A9 9E                lda     #>((SQR2_Q28) & $FFFF)
+000183r 1  8D rr rr             sta     fx_res_hi
+000186r 1  A9 A0                lda     #<((SQR2_Q28 >> 16) & $FFFF)
+000188r 1  8D rr rr             sta     fx_res2
+00018Br 1  A9 16                lda     #>(((SQR2_Q28 >> 16) & $FFFF))
+00018Dr 1  8D rr rr             sta     fx_res3
+000190r 1  60                   rts
+000191r 1               
+000191r 1               op_empty:
+000191r 1  AD rr rr             lda     param_nlo
+000194r 1  8D rr rr             sta     wk_mlo
+000197r 1  AD rr rr             lda     param_nhi
+00019Ar 1  8D rr rr             sta     wk_mhi
+00019Dr 1               @eloop:
+00019Dr 1  AD rr rr             lda     wk_mlo
+0001A0r 1  0D rr rr             ora     wk_mhi
+0001A3r 1  F0 0D                beq     @edone
+0001A5r 1  AD rr rr             lda     wk_mlo
+0001A8r 1  D0 03                bne     @edec
+0001AAr 1  CE rr rr             dec     wk_mhi
+0001ADr 1               @edec:
+0001ADr 1  CE rr rr             dec     wk_mlo
+0001B0r 1  80 EB                bra     @eloop
+0001B2r 1               @edone:
+0001B2r 1  60                   rts
+0001B3r 1               
+0001B3r 1               op_arr_fill:
+0001B3r 1  AD rr rr             lda     param_mlo
+0001B6r 1  8D rr rr             sta     wk_mlo
+0001B9r 1  AD rr rr             lda     param_mhi
+0001BCr 1  8D rr rr             sta     wk_mhi
+0001BFr 1               @af_outer:
+0001BFr 1  AD rr rr             lda     wk_mlo
+0001C2r 1  0D rr rr             ora     wk_mhi
+0001C5r 1  F0 16                beq     @af_done
+0001C7r 1  A2 00                ldx     #0
+0001C9r 1               @af_inner:
+0001C9r 1  8A                   txa
+0001CAr 1  9D rr rr             sta     bench_arr,x
+0001CDr 1  E8                   inx
+0001CEr 1  D0 F9                bne     @af_inner
+0001D0r 1  AD rr rr             lda     wk_mlo
+0001D3r 1  D0 03                bne     @af_od
+0001D5r 1  CE rr rr             dec     wk_mhi
+0001D8r 1               @af_od:
+0001D8r 1  CE rr rr             dec     wk_mlo
+0001DBr 1  80 E2                bra     @af_outer
+0001DDr 1               @af_done:
+0001DDr 1  60                   rts
+0001DEr 1               
+0001DEr 1               op_arr_sum:
+0001DEr 1  AD rr rr             lda     param_mlo
+0001E1r 1  8D rr rr             sta     wk_mlo
+0001E4r 1  AD rr rr             lda     param_mhi
+0001E7r 1  8D rr rr             sta     wk_mhi
+0001EAr 1               @as_outer:
+0001EAr 1  AD rr rr             lda     wk_mlo
+0001EDr 1  0D rr rr             ora     wk_mhi
+0001F0r 1  F0 27                beq     @as_done
+0001F2r 1  9C rr rr             stz     wk_nlo
+0001F5r 1  9C rr rr             stz     wk_nhi
+0001F8r 1  A2 00                ldx     #0
+0001FAr 1               @as_inner:
+0001FAr 1  18                   clc
+0001FBr 1  AD rr rr             lda     wk_nlo
+0001FEr 1  7D rr rr             adc     bench_arr,x
+000201r 1  8D rr rr             sta     wk_nlo
+000204r 1  90 03                bcc     @as_nc
+000206r 1  EE rr rr             inc     wk_nhi
+000209r 1               @as_nc:
+000209r 1  E8                   inx
+00020Ar 1  D0 EE                bne     @as_inner
+00020Cr 1  AD rr rr             lda     wk_mlo
+00020Fr 1  D0 03                bne     @as_od
+000211r 1  CE rr rr             dec     wk_mhi
+000214r 1               @as_od:
+000214r 1  CE rr rr             dec     wk_mlo
+000217r 1  80 D1                bra     @as_outer
+000219r 1               @as_done:
+000219r 1  60                   rts
+00021Ar 1               
+00021Ar 1                       .segment "RODATA"
+000000r 1  81 00 41 89  FP_1001: .byte $81, $00, $41, $89, $37
+000004r 1  37           
+000005r 1               
+000005r 1                       .segment "DATA"
+000000r 1  xx           wk_nlo: .res 1
+000001r 1  xx           wk_nhi: .res 1
+000002r 1  xx           wk_mlo: .res 1
+000003r 1  xx           wk_mhi: .res 1
+000004r 1  xx           fx_res_lo: .res 1
+000005r 1  xx           fx_res_hi: .res 1
+000006r 1  xx           fx_res2: .res 1
+000007r 1  xx           fx_res3: .res 1
+000008r 1  xx           sc_sink: .res 1
+000009r 1               bench_arr:
+000009r 1  xx xx xx xx          .res 256
+00000Dr 1  xx xx xx xx  
+000011r 1  xx xx xx xx  
+000009r 1               
