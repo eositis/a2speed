@@ -1,14 +1,14 @@
 Modules list:
 -------------
 clockdrv.o:
-    CODE              Offs=000000  Size=00057B  Align=00001  Fill=0000
+    CODE              Offs=000000  Size=0006D4  Align=00001  Fill=0000
 
 
 Segment list:
 -------------
 Name                   Start     End    Size  Align
 ----------------------------------------------------
-CODE                  007000  00757A  00057B  00001
+CODE                  007000  0076D3  0006D4  00001
 
 
 Exports list by name:

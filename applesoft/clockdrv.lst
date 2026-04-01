@@ -87,7 +87,7 @@ Current file: applesoft/clockdrv.s
 000068r 1               @r3:
 000068r 1  C9 03                cmp     #KIND_MEGA
 00006Ar 1  D0 06                bne     @r4
-00006Cr 1  20 rr rr             jsr     GetTimeMegaFlash
+00006Cr 1  20 rr rr             jsr     GetTimeMegaFlashA2
 00006Fr 1  4C rr rr             jmp     @done_read
 000072r 1               @r4:
 000072r 1  C9 04                cmp     #KIND_NSC
@@ -815,12 +815,67 @@ Current file: applesoft/clockdrv.s
 000475r 2  00           TKS2:	brk
 000476r 2               
 000476r 1               
-000476r 1               CLOCK_KIND:
-000476r 1  xx                   .res    1
-000477r 1               ZPSAVE:
-000477r 1  xx xx xx xx          .res    256
-00047Br 1  xx xx xx xx  
-00047Fr 1  xx xx xx xx  
-000577r 1               TimeNow:
-000577r 1  xx xx xx xx          .res    4
-000577r 1               
+000476r 1               ; A2Speed wrapper for SPF MegaFlash time read:
+000476r 1               ; SPF returns a first byte in 4 ms units and currently zeros TimeNow+3.
+000476r 1               ; Convert that 0..249 range to exact hundredths via a lookup table.
+000476r 1               GetTimeMegaFlashA2:
+000476r 1  A9 18                lda     #MF_CMD_GETPRODOS25TIME
+000478r 1  8D C0 C0             sta     MF_CMDSTATUS
+00047Br 1               @mf_wait:
+00047Br 1  2C C0 C0             bit     MF_CMDSTATUS
+00047Er 1  30 FB                bmi     @mf_wait
+000480r 1  70 4E                bvs     @mf_done
+000482r 1  AD C1 C0             lda     MF_PARAM                ; t4ms (0..249 in 4 ms units)
+000485r 1  8D rr rr             sta     MFTimeA2+0
+000488r 1  AD C1 C0             lda     MF_PARAM                ; seconds
+00048Br 1  8D rr rr             sta     MFTimeA2+1
+00048Er 1  AD C1 C0             lda     MF_PARAM                ; time lo
+000491r 1  8D rr rr             sta     MFTimeA2+2
+000494r 1  AD C1 C0             lda     MF_PARAM                ; time hi
+000497r 1  8D rr rr             sta     MFTimeA2+3
+00049Ar 1  AD C1 C0             lda     MF_PARAM                ; date lo - discard
+00049Dr 1  AD C1 C0             lda     MF_PARAM                ; date hi - discard
+0004A0r 1  AE rr rr             ldx     MFTimeA2+0
+0004A3r 1  BD rr rr             lda     MegaFlashHundredths,x
+0004A6r 1  8D rr rr             sta     TimeNow+3               ; Hundredths
+0004A9r 1  AD rr rr             lda     MFTimeA2+2
+0004ACr 1  29 3F                and     #$3F
+0004AEr 1  8D rr rr             sta     TimeNow+1               ; Minutes
+0004B1r 1  AD rr rr             lda     MFTimeA2+2
+0004B4r 1  4A                   lsr     a
+0004B5r 1  4A                   lsr     a
+0004B6r 1  4A                   lsr     a
+0004B7r 1  4A                   lsr     a
+0004B8r 1  4A                   lsr     a
+0004B9r 1  4A                   lsr     a
+0004BAr 1  8D rr rr             sta     MFTimeA2+0              ; temp: hour low 2 bits
+0004BDr 1  AD rr rr             lda     MFTimeA2+3
+0004C0r 1  29 07                and     #$07
+0004C2r 1  0A                   asl     a
+0004C3r 1  0A                   asl     a
+0004C4r 1  0D rr rr             ora     MFTimeA2+0
+0004C7r 1  8D rr rr             sta     TimeNow                 ; Hours
+0004CAr 1  AD rr rr             lda     MFTimeA2+1
+0004CDr 1  8D rr rr             sta     TimeNow+2               ; Seconds
+0004D0r 1               @mf_done:
+0004D0r 1  60                   rts
+0004D1r 1               
+0004D1r 1               MFTimeA2:
+0004D1r 1  xx xx xx xx          .res    4
+0004D5r 1               
+0004D5r 1               MegaFlashHundredths:
+0004D5r 1  00 00 00 01          .repeat 250, I
+0004D9r 1  01 02 02 02  
+0004DDr 1  03 03 04 04  
+0005CFr 1                       .byte   (I * 4) / 10
+0005CFr 1                       .endrepeat
+0005CFr 1               
+0005CFr 1               CLOCK_KIND:
+0005CFr 1  xx                   .res    1
+0005D0r 1               ZPSAVE:
+0005D0r 1  xx xx xx xx          .res    256
+0005D4r 1  xx xx xx xx  
+0005D8r 1  xx xx xx xx  
+0006D0r 1               TimeNow:
+0006D0r 1  xx xx xx xx          .res    4
+0006D0r 1               

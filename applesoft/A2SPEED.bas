@@ -14,8 +14,8 @@
 46 CA = 24576: PA = 24579: REM Applesoft: only 1st 2 name chars matter — ML/MLP both "ML"; CA/PA differ
 50 GOTO 400
 55 REM (unused)
-100 REM Timed CPU speed: GOSUB 102. SN=25000 empty FOR/NEXT; REFI=iter/s stock 1.02MHz IIe
-102 SN = 25000: REFI = 520
+100 REM Timed CPU speed: GOSUB 102. SN=25000 empty FOR/NEXT; REFI=iter/s measured reference machine
+102 SN = 25000: REFI = 481
 103 GOSUB 130: T1 = T
 104 FOR I = 1 TO SN: NEXT I
 105 GOSUB 130: T2 = T: GOSUB 140
@@ -160,7 +160,6 @@
 768 ES = EL: BO = 8: GOSUB 220
 769 L$ = "Array sum 256 x" + STR$(N): GOSUB 194
 785 REM ========== SUMMARY ==========
-790 PRINT : PRINT "Done."
 791 REM ProDOS cleanup: restore HIMEM (115/116), PR#0, CLOSE (avoids NO BUFFERS on re-RUN)
 792 POKE 115, HM - INT(HM / 256) * 256
 793 POKE 116, INT(HM / 256)

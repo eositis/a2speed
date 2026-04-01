@@ -6,7 +6,7 @@ A2Speed uses timing for benchmarks. The following clock protocols are the same s
 |-------|--------|-------------------|--------|
 | 1 | **IIgs built-in** | Apple IIgs | `CheckForGS` → `GetTimeGS`; uses GS time API. |
 | 2 | **ROMX** | Apple II with ROMX (e.g. CFFA, ROM-in-RAM) | `CheckForROMX` → `GetTimeROMX`; signature at `$DFFE/$DFFF` ($4A/$CD); time via `$D8F0`, result in zero-page. |
-| 3 | **MegaFlash** | IIc/IIc+ with [MegaFlash](https://github.com/ThomasFok/MegaFlash) | `CheckForMegaFlash` → `GetTimeMegaFlash`; I/O at $C0C0–$C0C3; `CMD_GETDEVINFO` signature $88,$74; `CMD_GETPRODOS25TIME` for time with seconds. See also `doc/MegaFlash_Clock.md` in SPF. |
+| 3 | **MegaFlash** | IIc/IIc+ with [MegaFlash](https://github.com/ThomasFok/MegaFlash) | `CheckForMegaFlash` → `GetTimeMegaFlash`; I/O at $C0C0–$C0C3; `CMD_GETDEVINFO` signature $88,$74; `CMD_GETPRODOS25TIME` for time with seconds and 4 ms units, which A2Speed converts into hundredths in `TimeNow+3`. See also `doc/MegaFlash_Clock.md` in SPF. |
 | 4 | **No-Slot Clock** | Apple II with No-Slot Clock card | `CheckForNoSlotClock` → `GetTimeNSC`; signature in `L0304` after probe; hundredths in `TimeNow+3`. |
 | 5 | **TimeMaster II H.O.** (slot) | Applied Engineering; ROM id **$4D,$D9** at **$Cn00–$Cn01** (AE ROM Rev 5 — verify against your ROM) | A2Speed: `GetTimeTimeMaster` → SPF `GetTimeThunderclock` (BCD slot path; name is historical). |
 

@@ -83,7 +83,7 @@ CLOCK_READ:
 @r3:
         cmp     #KIND_MEGA
         bne     @r4
-        jsr     GetTimeMegaFlash
+        jsr     GetTimeMegaFlashA2
         jmp     @done_read
 @r4:
         cmp     #KIND_NSC
@@ -150,6 +150,59 @@ CheckForTimeMaster:
         rts
 
         .include "gettime.asm"
+
+; A2Speed wrapper for SPF MegaFlash time read:
+; SPF returns a first byte in 4 ms units and currently zeros TimeNow+3.
+; Convert that 0..249 range to exact hundredths via a lookup table.
+GetTimeMegaFlashA2:
+        lda     #MF_CMD_GETPRODOS25TIME
+        sta     MF_CMDSTATUS
+@mf_wait:
+        bit     MF_CMDSTATUS
+        bmi     @mf_wait
+        bvs     @mf_done
+        lda     MF_PARAM                ; t4ms (0..249 in 4 ms units)
+        sta     MFTimeA2+0
+        lda     MF_PARAM                ; seconds
+        sta     MFTimeA2+1
+        lda     MF_PARAM                ; time lo
+        sta     MFTimeA2+2
+        lda     MF_PARAM                ; time hi
+        sta     MFTimeA2+3
+        lda     MF_PARAM                ; date lo - discard
+        lda     MF_PARAM                ; date hi - discard
+        ldx     MFTimeA2+0
+        lda     MegaFlashHundredths,x
+        sta     TimeNow+3               ; Hundredths
+        lda     MFTimeA2+2
+        and     #$3F
+        sta     TimeNow+1               ; Minutes
+        lda     MFTimeA2+2
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     MFTimeA2+0              ; temp: hour low 2 bits
+        lda     MFTimeA2+3
+        and     #$07
+        asl     a
+        asl     a
+        ora     MFTimeA2+0
+        sta     TimeNow                 ; Hours
+        lda     MFTimeA2+1
+        sta     TimeNow+2               ; Seconds
+@mf_done:
+        rts
+
+MFTimeA2:
+        .res    4
+
+MegaFlashHundredths:
+        .repeat 250, I
+        .byte   (I * 4) / 10
+        .endrepeat
 
 CLOCK_KIND:
         .res    1
