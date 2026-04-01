@@ -10,7 +10,7 @@
 38 PRINT "A2SPEED - Apple II Benchmarks (Applesoft)"
 39 PRINT "=============================================="
 40 REM Driver load $7000; CD/RD/CK/CS/TN MUST match applesoft/clockdrv.lst after each ca65/ld65 build
-45 CD = 28672: RD = 28750: TN = 30071: CK = 29814: CS = 29623
+45 CD = 28672: RD = 28750: TN = 30416: CK = 30159: CS = 29623
 46 CA = 24576: PA = 24579: REM Applesoft: only 1st 2 name chars matter — ML/MLP both "ML"; CA/PA differ
 50 GOTO 400
 55 REM (unused)
