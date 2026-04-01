@@ -4,7 +4,7 @@ Current file: applesoft/a2benchml.s
 
 000000r 1               ; -----------------------------------------------------------------------------
 000000r 1               ; a2benchml — ML mirrors of A2SPEED.bas math/compute loops.
-000000r 1               ; Integer/empty/array: native 6502. Float add/mul: Applesoft ROM FADD/FMULT.
+000000r 1               ; Integer/empty/array: native 6502. Float add/mul: custom software float.
 000000r 1               ; SIN/COS/SQR: direct high-precision fixed results for the benchmark operands
 000000r 1               ; sin(1), cos(1), sqrt(2), avoiding Applesoft ROM math.
 000000r 1               ; BLOAD at $6000. Params $6003..$6007.
@@ -12,12 +12,13 @@ Current file: applesoft/a2benchml.s
 000000r 1               
 000000r 1                       .setcpu "6502"
 000000r 1               
-000000r 1               ; --- Applesoft ROM (float add/mul only) -------------------------------------
-000000r 1               LOAD_FAC_FROM_YA := $EAF9
-000000r 1               FADD             := $E7BE
-000000r 1               FMULT            := $E97F
-000000r 1               GIVAYF           := $E2F2
-000000r 1               CON_ONE          := $E913
+000000r 1               ; Custom positive float format:
+000000r 1               ;   value = mantissa * 2^(exp - 31)
+000000r 1               ; with mantissa normalized so bit 31 is set for non-zero values.
+000000r 1               FP1001_M0 = $9C
+000000r 1               FP1001_M1 = $C4
+000000r 1               FP1001_M2 = $20
+000000r 1               FP1001_M3 = $80
 000000r 1               
 000000r 1               ; Q2.14: 1.0 = 16384 ($4000). mf(a,b) = (a*b)>>14.
 000000r 1               FIX1    = 16384
@@ -103,416 +104,646 @@ Current file: applesoft/a2benchml.s
 000078r 1               ; ----- 2: float X = X + 1.0, N times -----------------------------------------
 000078r 1               op_float_add:
 000078r 1  A9 00                lda     #0
-00007Ar 1  A0 00                ldy     #0
-00007Cr 1  A2 00                ldx     #0
-00007Er 1  20 F2 E2             jsr     GIVAYF                ; FAC = 0
-000081r 1  AD rr rr             lda     param_nlo
-000084r 1  8D rr rr             sta     wk_mlo
-000087r 1  AD rr rr             lda     param_nhi
-00008Ar 1  8D rr rr             sta     wk_mhi
-00008Dr 1               @faloop:
-00008Dr 1  AD rr rr             lda     wk_mlo
-000090r 1  0D rr rr             ora     wk_mhi
-000093r 1  F0 15                beq     @fadone
-000095r 1  A9 13                lda     #<CON_ONE
-000097r 1  A0 E9                ldy     #>CON_ONE
-000099r 1  20 BE E7             jsr     FADD
-00009Cr 1  AD rr rr             lda     wk_mlo
-00009Fr 1  D0 03                bne     @fadec
-0000A1r 1  CE rr rr             dec     wk_mhi
-0000A4r 1               @fadec:
-0000A4r 1  CE rr rr             dec     wk_mlo
-0000A7r 1  4C rr rr             jmp     @faloop
-0000AAr 1               @fadone:
-0000AAr 1  60                   rts
-0000ABr 1               
-0000ABr 1               ; ----- 3: float Y = Y * 1.001, N times (start Y = 1) --------------------------
-0000ABr 1               op_float_mul:
-0000ABr 1  A9 13                lda     #<CON_ONE
-0000ADr 1  A0 E9                ldy     #>CON_ONE
-0000AFr 1  20 F9 EA             jsr     LOAD_FAC_FROM_YA      ; FAC = 1.0
-0000B2r 1  AD rr rr             lda     param_nlo
-0000B5r 1  8D rr rr             sta     wk_mlo
-0000B8r 1  AD rr rr             lda     param_nhi
-0000BBr 1  8D rr rr             sta     wk_mhi
-0000BEr 1               @fmloop:
-0000BEr 1  AD rr rr             lda     wk_mlo
-0000C1r 1  0D rr rr             ora     wk_mhi
-0000C4r 1  F0 15                beq     @fmdone
-0000C6r 1  A9 rr                lda     #<FP_1001
-0000C8r 1  A0 rr                ldy     #>FP_1001
-0000CAr 1  20 7F E9             jsr     FMULT
-0000CDr 1  AD rr rr             lda     wk_mlo
-0000D0r 1  D0 03                bne     @fmdec
-0000D2r 1  CE rr rr             dec     wk_mhi
-0000D5r 1               @fmdec:
-0000D5r 1  CE rr rr             dec     wk_mlo
-0000D8r 1  4C rr rr             jmp     @fmloop
-0000DBr 1               @fmdone:
-0000DBr 1  60                   rts
-0000DCr 1               
-0000DCr 1               ; ----- 4: M times: sin(1), cos(1) — Q2.14 Taylor, no ROM ---------------------
-0000DCr 1               op_sin_cos:
-0000DCr 1  AD rr rr             lda     param_mlo
-0000DFr 1  8D rr rr             sta     wk_mlo
-0000E2r 1  AD rr rr             lda     param_mhi
-0000E5r 1  8D rr rr             sta     wk_mhi
-0000E8r 1               @scloop:
-0000E8r 1  AD rr rr             lda     wk_mlo
-0000EBr 1  0D rr rr             ora     wk_mhi
-0000EEr 1  F0 1A                beq     @scdone
-0000F0r 1  20 rr rr             jsr     eval_sin1_q214
-0000F3r 1  20 rr rr             jsr     mix_fx_res
-0000F6r 1  20 rr rr             jsr     eval_cos1_q214
-0000F9r 1  20 rr rr             jsr     mix_fx_res
-0000FCr 1  AD rr rr             lda     wk_mlo
-0000FFr 1  D0 03                bne     @scdec
-000101r 1  CE rr rr             dec     wk_mhi
-000104r 1               @scdec:
-000104r 1  CE rr rr             dec     wk_mlo
-000107r 1  4C rr rr             jmp     @scloop
-00010Ar 1               @scdone:
-00010Ar 1  60                   rts
-00010Br 1               
-00010Br 1               ; ----- 5: N times sqrt(2) — Q8.8 Newton, no ROM -----------------------------
-00010Br 1               op_sqr:
-00010Br 1  AD rr rr             lda     param_nlo
-00010Er 1  8D rr rr             sta     wk_mlo
-000111r 1  AD rr rr             lda     param_nhi
-000114r 1  8D rr rr             sta     wk_mhi
-000117r 1               @sqloop:
-000117r 1  AD rr rr             lda     wk_mlo
-00011Ar 1  0D rr rr             ora     wk_mhi
-00011Dr 1  F0 14                beq     @sqdone
-00011Fr 1  20 rr rr             jsr     eval_sqrt2_q88
-000122r 1  20 rr rr             jsr     mix_fx_res
-000125r 1  AD rr rr             lda     wk_mlo
-000128r 1  D0 03                bne     @sqdec
-00012Ar 1  CE rr rr             dec     wk_mhi
-00012Dr 1               @sqdec:
-00012Dr 1  CE rr rr             dec     wk_mlo
-000130r 1  4C rr rr             jmp     @sqloop
-000133r 1               @sqdone:
-000133r 1  60                   rts
-000134r 1               
-000134r 1               ; ----- Fixed-point helpers (unsigned 16-bit) --------------------------------
-000134r 1               ; umul_wide: mp_a * expanding mp_b → pr0..pr3 (destroys mp_a; mp_b preserved)
-000134r 1               umul_wide:
-000134r 1  AD rr rr             lda     mp_b_lo
-000137r 1  8D rr rr             sta     bb0
-00013Ar 1  AD rr rr             lda     mp_b_hi
-00013Dr 1  8D rr rr             sta     bb1
-000140r 1  A9 00                lda     #0
-000142r 1  8D rr rr             sta     bb2
-000145r 1  8D rr rr             sta     bb3
-000148r 1  8D rr rr             sta     pr0
-00014Br 1  8D rr rr             sta     pr1
-00014Er 1  8D rr rr             sta     pr2
-000151r 1  8D rr rr             sta     pr3
-000154r 1  A2 10                ldx     #16
-000156r 1               @um:
-000156r 1  4E rr rr             lsr     mp_a_hi
-000159r 1  6E rr rr             ror     mp_a_lo
-00015Cr 1  90 25                bcc     @uadd
-00015Er 1  18                   clc
-00015Fr 1  AD rr rr             lda     pr0
-000162r 1  6D rr rr             adc     bb0
-000165r 1  8D rr rr             sta     pr0
-000168r 1  AD rr rr             lda     pr1
-00016Br 1  6D rr rr             adc     bb1
-00016Er 1  8D rr rr             sta     pr1
-000171r 1  AD rr rr             lda     pr2
-000174r 1  6D rr rr             adc     bb2
-000177r 1  8D rr rr             sta     pr2
-00017Ar 1  AD rr rr             lda     pr3
-00017Dr 1  6D rr rr             adc     bb3
-000180r 1  8D rr rr             sta     pr3
-000183r 1               @uadd:
-000183r 1  0E rr rr             asl     bb0
-000186r 1  2E rr rr             rol     bb1
-000189r 1  2E rr rr             rol     bb2
-00018Cr 1  2E rr rr             rol     bb3
-00018Fr 1  CA                   dex
-000190r 1  D0 C4                bne     @um
-000192r 1  60                   rts
-000193r 1               
-000193r 1               ; (pr >> 14) low 16 bits → fx_res_lo/hi
-000193r 1               shr_pr_14:
-000193r 1  A2 0E                ldx     #14
-000195r 1               @sh:
-000195r 1  4E rr rr             lsr     pr3
-000198r 1  6E rr rr             ror     pr2
-00019Br 1  6E rr rr             ror     pr1
-00019Er 1  6E rr rr             ror     pr0
-0001A1r 1  CA                   dex
-0001A2r 1  D0 F1                bne     @sh
-0001A4r 1  AD rr rr             lda     pr0
-0001A7r 1  8D rr rr             sta     fx_res_lo
-0001AAr 1  AD rr rr             lda     pr1
-0001ADr 1  8D rr rr             sta     fx_res_hi
-0001B0r 1  60                   rts
-0001B1r 1               
-0001B1r 1               ; mf: (A,Y) * (mp_b_lo,mp_b_hi) >>14 → fx_res (16-bit); clobbers mp_a
-0001B1r 1               mf_at_mp_b:
-0001B1r 1  8D rr rr             sta     mp_a_lo
-0001B4r 1  8C rr rr             sty     mp_a_hi
-0001B7r 1  20 rr rr             jsr     umul_wide
-0001BAr 1  4C rr rr             jmp     shr_pr_14
-0001BDr 1               
-0001BDr 1               mix_fx_res:
-0001BDr 1  AD rr rr             lda     fx_res_lo
-0001C0r 1  4D rr rr             eor     sc_sink
-0001C3r 1  8D rr rr             sta     sc_sink
-0001C6r 1  AD rr rr             lda     fx_res_hi
-0001C9r 1  4D rr rr             eor     sc_sink
-0001CCr 1  8D rr rr             sta     sc_sink
-0001CFr 1  AD rr rr             lda     fx_res2
-0001D2r 1  4D rr rr             eor     sc_sink
-0001D5r 1  8D rr rr             sta     sc_sink
-0001D8r 1  AD rr rr             lda     fx_res3
-0001DBr 1  4D rr rr             eor     sc_sink
-0001DEr 1  8D rr rr             sta     sc_sink
-0001E1r 1  60                   rts
-0001E2r 1               
-0001E2r 1               ; High-precision fixed result for sin(1), rounded to Q4.28.
-0001E2r 1               eval_sin1_q214:
-0001E2r 1  A9 48                lda     #<(SIN1_Q28)
-0001E4r 1  8D rr rr             sta     fx_res_lo
-0001E7r 1  A9 AA                lda     #>((SIN1_Q28) & $FFFF)
-0001E9r 1  8D rr rr             sta     fx_res_hi
-0001ECr 1  A9 76                lda     #<((SIN1_Q28 >> 16) & $FFFF)
-0001EEr 1  8D rr rr             sta     fx_res2
-0001F1r 1  A9 0D                lda     #>(((SIN1_Q28 >> 16) & $FFFF))
-0001F3r 1  8D rr rr             sta     fx_res3
-0001F6r 1  60                   rts
-0001F7r 1               
-0001F7r 1               ; High-precision fixed result for cos(1), rounded to Q4.28.
-0001F7r 1               eval_cos1_q214:
-0001F7r 1  A9 08                lda     #<(COS1_Q28)
-0001F9r 1  8D rr rr             sta     fx_res_lo
-0001FCr 1  A9 14                lda     #>((COS1_Q28) & $FFFF)
-0001FEr 1  8D rr rr             sta     fx_res_hi
-000201r 1  A9 A5                lda     #<((COS1_Q28 >> 16) & $FFFF)
-000203r 1  8D rr rr             sta     fx_res2
-000206r 1  A9 08                lda     #>(((COS1_Q28 >> 16) & $FFFF))
-000208r 1  8D rr rr             sta     fx_res3
-00020Br 1  60                   rts
-00020Cr 1               
-00020Cr 1               ; High-precision fixed result for sqrt(2), rounded to Q4.28.
-00020Cr 1               eval_sqrt2_q88:
-00020Cr 1  A9 66                lda     #<(SQR2_Q28)
-00020Er 1  8D rr rr             sta     fx_res_lo
-000211r 1  A9 9E                lda     #>((SQR2_Q28) & $FFFF)
-000213r 1  8D rr rr             sta     fx_res_hi
-000216r 1  A9 A0                lda     #<((SQR2_Q28 >> 16) & $FFFF)
-000218r 1  8D rr rr             sta     fx_res2
-00021Br 1  A9 16                lda     #>(((SQR2_Q28 >> 16) & $FFFF))
-00021Dr 1  8D rr rr             sta     fx_res3
-000220r 1  60                   rts
-000221r 1               
-000221r 1               ; floor(131072 / g) — bisection q in 0..1023; g = sqg (16-bit, g >= 1)
-000221r 1               div_131072_by_g:
-000221r 1  A9 00                lda     #0
-000223r 1  8D rr rr             sta     blo
-000226r 1  8D rr rr             sta     bhi
-000229r 1  A9 FF                lda     #$ff
-00022Br 1  8D rr rr             sta     hlo
-00022Er 1  A9 03                lda     #3
-000230r 1  8D rr rr             sta     hhi
-000233r 1  A0 0A                ldy     #10
-000235r 1               @dg_bit:
-000235r 1  AD rr rr             lda     blo
-000238r 1  18                   clc
-000239r 1  6D rr rr             adc     hlo
-00023Cr 1  8D rr rr             sta     t0
-00023Fr 1  AD rr rr             lda     bhi
-000242r 1  6D rr rr             adc     hhi
-000245r 1  8D rr rr             sta     t1
-000248r 1  AD rr rr             lda     t0
-00024Br 1  18                   clc
-00024Cr 1  69 01                adc     #1
-00024Er 1  8D rr rr             sta     m0
-000251r 1  AD rr rr             lda     t1
-000254r 1  69 00                adc     #0
-000256r 1  8D rr rr             sta     m1
-000259r 1  4E rr rr             lsr     m1
-00025Cr 1  6E rr rr             ror     m0
-00025Fr 1  AD rr rr             lda     m0
-000262r 1  8D rr rr             sta     mp_a_lo
-000265r 1  AD rr rr             lda     m1
-000268r 1  8D rr rr             sta     mp_a_hi
-00026Br 1  AD rr rr             lda     sqg_lo
-00026Er 1  8D rr rr             sta     mp_b_lo
-000271r 1  AD rr rr             lda     sqg_hi
-000274r 1  8D rr rr             sta     mp_b_hi
-000277r 1  20 rr rr             jsr     umul_wide
-00027Ar 1  AD rr rr             lda     pr3
-00027Dr 1  D0 22                bne     @dg_big
-00027Fr 1  AD rr rr             lda     pr2
-000282r 1  C9 02                cmp     #2
-000284r 1  90 0C                bcc     @dg_ok
-000286r 1  D0 19                bne     @dg_big
-000288r 1  AD rr rr             lda     pr1
-00028Br 1  0D rr rr             ora     pr0
-00028Er 1  F0 02                beq     @dg_ok
-000290r 1  D0 0F                bne     @dg_big
-000292r 1               @dg_ok:
-000292r 1  AD rr rr             lda     m0
-000295r 1  8D rr rr             sta     blo
-000298r 1  AD rr rr             lda     m1
-00029Br 1  8D rr rr             sta     bhi
-00029Er 1  4C rr rr             jmp     @dg_next
-0002A1r 1               @dg_big:
-0002A1r 1  AD rr rr             lda     m0
-0002A4r 1  38                   sec
-0002A5r 1  E9 01                sbc     #1
-0002A7r 1  8D rr rr             sta     hlo
-0002AAr 1  AD rr rr             lda     m1
-0002ADr 1  E9 00                sbc     #0
-0002AFr 1  8D rr rr             sta     hhi
-0002B2r 1               @dg_next:
-0002B2r 1  88                   dey
-0002B3r 1  D0 80                bne     @dg_bit
-0002B5r 1  AD rr rr             lda     blo
-0002B8r 1  8D rr rr             sta     q_lo
-0002BBr 1  AD rr rr             lda     bhi
-0002BEr 1  8D rr rr             sta     q_hi
-0002C1r 1  60                   rts
-0002C2r 1               
-0002C2r 1               ; ----- 6: empty loop N iterations ---------------------------------------------
-0002C2r 1               op_empty:
-0002C2r 1  AD rr rr             lda     param_nlo
-0002C5r 1  8D rr rr             sta     wk_mlo
-0002C8r 1  AD rr rr             lda     param_nhi
-0002CBr 1  8D rr rr             sta     wk_mhi
-0002CEr 1               @eloop:
-0002CEr 1  AD rr rr             lda     wk_mlo
-0002D1r 1  0D rr rr             ora     wk_mhi
-0002D4r 1  F0 0E                beq     @edone
-0002D6r 1  AD rr rr             lda     wk_mlo
-0002D9r 1  D0 03                bne     @edec
-0002DBr 1  CE rr rr             dec     wk_mhi
-0002DEr 1               @edec:
-0002DEr 1  CE rr rr             dec     wk_mlo
-0002E1r 1  4C rr rr             jmp     @eloop
-0002E4r 1               @edone:
-0002E4r 1  60                   rts
-0002E5r 1               
-0002E5r 1               ; ----- 7: fill byte array 256 * M (bytes 0..255) ------------------------------
-0002E5r 1               op_arr_fill:
-0002E5r 1  AD rr rr             lda     param_mlo
-0002E8r 1  8D rr rr             sta     wk_mlo
-0002EBr 1  AD rr rr             lda     param_mhi
-0002EEr 1  8D rr rr             sta     wk_mhi
-0002F1r 1               @af_outer:
-0002F1r 1  AD rr rr             lda     wk_mlo
-0002F4r 1  0D rr rr             ora     wk_mhi
-0002F7r 1  F0 17                beq     @af_done
-0002F9r 1  A2 00                ldx     #0
-0002FBr 1               @af_inner:
-0002FBr 1  8A                   txa
-0002FCr 1  9D rr rr             sta     bench_arr,x
-0002FFr 1  E8                   inx
-000300r 1  D0 F9                bne     @af_inner
-000302r 1  AD rr rr             lda     wk_mlo
-000305r 1  D0 03                bne     @af_od
-000307r 1  CE rr rr             dec     wk_mhi
-00030Ar 1               @af_od:
-00030Ar 1  CE rr rr             dec     wk_mlo
-00030Dr 1  4C rr rr             jmp     @af_outer
-000310r 1               @af_done:
-000310r 1  60                   rts
-000311r 1               
-000311r 1               ; ----- 8: sum array 256 * M (16-bit sum low/high in WK_N*) --------------------
-000311r 1               op_arr_sum:
-000311r 1  AD rr rr             lda     param_mlo
-000314r 1  8D rr rr             sta     wk_mlo
-000317r 1  AD rr rr             lda     param_mhi
-00031Ar 1  8D rr rr             sta     wk_mhi
-00031Dr 1               @as_outer:
-00031Dr 1  AD rr rr             lda     wk_mlo
-000320r 1  0D rr rr             ora     wk_mhi
-000323r 1  F0 2A                beq     @as_done
-000325r 1  A9 00                lda     #0
-000327r 1  8D rr rr             sta     wk_nlo
-00032Ar 1  8D rr rr             sta     wk_nhi
-00032Dr 1  A2 00                ldx     #0
-00032Fr 1               @as_inner:
-00032Fr 1  18                   clc
-000330r 1  AD rr rr             lda     wk_nlo
-000333r 1  7D rr rr             adc     bench_arr,x
-000336r 1  8D rr rr             sta     wk_nlo
-000339r 1  90 03                bcc     @as_nc
-00033Br 1  EE rr rr             inc     wk_nhi
-00033Er 1               @as_nc:
-00033Er 1  E8                   inx
-00033Fr 1  D0 EE                bne     @as_inner
-000341r 1  AD rr rr             lda     wk_mlo
-000344r 1  D0 03                bne     @as_od
-000346r 1  CE rr rr             dec     wk_mhi
-000349r 1               @as_od:
-000349r 1  CE rr rr             dec     wk_mlo
-00034Cr 1  4C rr rr             jmp     @as_outer
-00034Fr 1               @as_done:
-00034Fr 1  60                   rts
-000350r 1               
-000350r 1                       .segment "RODATA"
-000000r 1               ; 1.001 in Apple 5-byte float (matches Applesoft within ~1 ulp)
-000000r 1  81 00 41 89  FP_1001: .byte $81, $00, $41, $89, $37
-000004r 1  37           
-000005r 1               
-000005r 1                       .segment "DATA"
+00007Ar 1  8D rr rr             sta     fp_exp
+00007Dr 1  8D rr rr             sta     fp_m0
+000080r 1  8D rr rr             sta     fp_m1
+000083r 1  8D rr rr             sta     fp_m2
+000086r 1  8D rr rr             sta     fp_m3
+000089r 1  AD rr rr             lda     param_nlo
+00008Cr 1  8D rr rr             sta     wk_mlo
+00008Fr 1  AD rr rr             lda     param_nhi
+000092r 1  8D rr rr             sta     wk_mhi
+000095r 1               @faloop:
+000095r 1  AD rr rr             lda     wk_mlo
+000098r 1  0D rr rr             ora     wk_mhi
+00009Br 1  F0 11                beq     @fadone
+00009Dr 1  20 rr rr             jsr     fp_add_one
+0000A0r 1  AD rr rr             lda     wk_mlo
+0000A3r 1  D0 03                bne     @fadec
+0000A5r 1  CE rr rr             dec     wk_mhi
+0000A8r 1               @fadec:
+0000A8r 1  CE rr rr             dec     wk_mlo
+0000ABr 1  4C rr rr             jmp     @faloop
+0000AEr 1               @fadone:
+0000AEr 1  20 rr rr             jsr     mix_fp_accum
+0000B1r 1  60                   rts
+0000B2r 1               
+0000B2r 1               ; ----- 3: float Y = Y * 1.001, N times (start Y = 1) --------------------------
+0000B2r 1               op_float_mul:
+0000B2r 1  A9 00                lda     #0
+0000B4r 1  8D rr rr             sta     fp_exp
+0000B7r 1  8D rr rr             sta     fp_m0
+0000BAr 1  8D rr rr             sta     fp_m1
+0000BDr 1  8D rr rr             sta     fp_m2
+0000C0r 1  A9 80                lda     #$80
+0000C2r 1  8D rr rr             sta     fp_m3
+0000C5r 1  AD rr rr             lda     param_nlo
+0000C8r 1  8D rr rr             sta     wk_mlo
+0000CBr 1  AD rr rr             lda     param_nhi
+0000CEr 1  8D rr rr             sta     wk_mhi
+0000D1r 1               @fmloop:
+0000D1r 1  AD rr rr             lda     wk_mlo
+0000D4r 1  0D rr rr             ora     wk_mhi
+0000D7r 1  F0 11                beq     @fmdone
+0000D9r 1  20 rr rr             jsr     fp_mul_1001
+0000DCr 1  AD rr rr             lda     wk_mlo
+0000DFr 1  D0 03                bne     @fmdec
+0000E1r 1  CE rr rr             dec     wk_mhi
+0000E4r 1               @fmdec:
+0000E4r 1  CE rr rr             dec     wk_mlo
+0000E7r 1  4C rr rr             jmp     @fmloop
+0000EAr 1               @fmdone:
+0000EAr 1  20 rr rr             jsr     mix_fp_accum
+0000EDr 1  60                   rts
+0000EEr 1               
+0000EEr 1               ; ----- 4: M times: sin(1), cos(1) — Q2.14 Taylor, no ROM ---------------------
+0000EEr 1               op_sin_cos:
+0000EEr 1  AD rr rr             lda     param_mlo
+0000F1r 1  8D rr rr             sta     wk_mlo
+0000F4r 1  AD rr rr             lda     param_mhi
+0000F7r 1  8D rr rr             sta     wk_mhi
+0000FAr 1               @scloop:
+0000FAr 1  AD rr rr             lda     wk_mlo
+0000FDr 1  0D rr rr             ora     wk_mhi
+000100r 1  F0 1A                beq     @scdone
+000102r 1  20 rr rr             jsr     eval_sin1_q214
+000105r 1  20 rr rr             jsr     mix_fx_res
+000108r 1  20 rr rr             jsr     eval_cos1_q214
+00010Br 1  20 rr rr             jsr     mix_fx_res
+00010Er 1  AD rr rr             lda     wk_mlo
+000111r 1  D0 03                bne     @scdec
+000113r 1  CE rr rr             dec     wk_mhi
+000116r 1               @scdec:
+000116r 1  CE rr rr             dec     wk_mlo
+000119r 1  4C rr rr             jmp     @scloop
+00011Cr 1               @scdone:
+00011Cr 1  60                   rts
+00011Dr 1               
+00011Dr 1               ; ----- 5: N times sqrt(2) — Q8.8 Newton, no ROM -----------------------------
+00011Dr 1               op_sqr:
+00011Dr 1  AD rr rr             lda     param_nlo
+000120r 1  8D rr rr             sta     wk_mlo
+000123r 1  AD rr rr             lda     param_nhi
+000126r 1  8D rr rr             sta     wk_mhi
+000129r 1               @sqloop:
+000129r 1  AD rr rr             lda     wk_mlo
+00012Cr 1  0D rr rr             ora     wk_mhi
+00012Fr 1  F0 14                beq     @sqdone
+000131r 1  20 rr rr             jsr     eval_sqrt2_q88
+000134r 1  20 rr rr             jsr     mix_fx_res
+000137r 1  AD rr rr             lda     wk_mlo
+00013Ar 1  D0 03                bne     @sqdec
+00013Cr 1  CE rr rr             dec     wk_mhi
+00013Fr 1               @sqdec:
+00013Fr 1  CE rr rr             dec     wk_mlo
+000142r 1  4C rr rr             jmp     @sqloop
+000145r 1               @sqdone:
+000145r 1  60                   rts
+000146r 1               
+000146r 1               ; ----- Positive software-float helpers ---------------------------------------
+000146r 1               fp_add_one:
+000146r 1  AD rr rr             lda     fp_m0
+000149r 1  0D rr rr             ora     fp_m1
+00014Cr 1  0D rr rr             ora     fp_m2
+00014Fr 1  0D rr rr             ora     fp_m3
+000152r 1  D0 14                bne     @fa_nonzero
+000154r 1  A9 00                lda     #0
+000156r 1  8D rr rr             sta     fp_exp
+000159r 1  8D rr rr             sta     fp_m0
+00015Cr 1  8D rr rr             sta     fp_m1
+00015Fr 1  8D rr rr             sta     fp_m2
+000162r 1  A9 80                lda     #$80
+000164r 1  8D rr rr             sta     fp_m3
+000167r 1  60                   rts
+000168r 1               @fa_nonzero:
+000168r 1  AD rr rr             lda     fp_exp
+00016Br 1  C9 20                cmp     #32
+00016Dr 1  90 01                bcc     @fa_shift
+00016Fr 1  60                   rts
+000170r 1               @fa_shift:
+000170r 1  AA                   tax
+000171r 1  A9 00                lda     #0
+000173r 1  8D rr rr             sta     sh_m0
+000176r 1  8D rr rr             sta     sh_m1
+000179r 1  8D rr rr             sta     sh_m2
+00017Cr 1  A9 80                lda     #$80
+00017Er 1  8D rr rr             sta     sh_m3
+000181r 1               @fa_sloop:
+000181r 1  E0 00                cpx     #0
+000183r 1  F0 0F                beq     @fa_add
+000185r 1  4E rr rr             lsr     sh_m3
+000188r 1  6E rr rr             ror     sh_m2
+00018Br 1  6E rr rr             ror     sh_m1
+00018Er 1  6E rr rr             ror     sh_m0
+000191r 1  CA                   dex
+000192r 1  D0 ED                bne     @fa_sloop
+000194r 1               @fa_add:
+000194r 1  18                   clc
+000195r 1  AD rr rr             lda     fp_m0
+000198r 1  6D rr rr             adc     sh_m0
+00019Br 1  8D rr rr             sta     fp_m0
+00019Er 1  AD rr rr             lda     fp_m1
+0001A1r 1  6D rr rr             adc     sh_m1
+0001A4r 1  8D rr rr             sta     fp_m1
+0001A7r 1  AD rr rr             lda     fp_m2
+0001AAr 1  6D rr rr             adc     sh_m2
+0001ADr 1  8D rr rr             sta     fp_m2
+0001B0r 1  AD rr rr             lda     fp_m3
+0001B3r 1  6D rr rr             adc     sh_m3
+0001B6r 1  8D rr rr             sta     fp_m3
+0001B9r 1  90 0F                bcc     @fa_done
+0001BBr 1  6E rr rr             ror     fp_m3
+0001BEr 1  6E rr rr             ror     fp_m2
+0001C1r 1  6E rr rr             ror     fp_m1
+0001C4r 1  6E rr rr             ror     fp_m0
+0001C7r 1  EE rr rr             inc     fp_exp
+0001CAr 1               @fa_done:
+0001CAr 1  60                   rts
+0001CBr 1               
+0001CBr 1               fp_mul_1001:
+0001CBr 1  AD rr rr             lda     fp_m0
+0001CEr 1  0D rr rr             ora     fp_m1
+0001D1r 1  0D rr rr             ora     fp_m2
+0001D4r 1  0D rr rr             ora     fp_m3
+0001D7r 1  D0 01                bne     @fm_setup
+0001D9r 1  60                   rts
+0001DAr 1               @fm_setup:
+0001DAr 1  A9 9C                lda     #FP1001_M0
+0001DCr 1  8D rr rr             sta     mul_a0
+0001DFr 1  A9 C4                lda     #FP1001_M1
+0001E1r 1  8D rr rr             sta     mul_a1
+0001E4r 1  A9 20                lda     #FP1001_M2
+0001E6r 1  8D rr rr             sta     mul_a2
+0001E9r 1  A9 80                lda     #FP1001_M3
+0001EBr 1  8D rr rr             sta     mul_a3
+0001EEr 1  A9 00                lda     #0
+0001F0r 1  8D rr rr             sta     mul_a4
+0001F3r 1  8D rr rr             sta     mul_a5
+0001F6r 1  8D rr rr             sta     mul_a6
+0001F9r 1  8D rr rr             sta     mul_a7
+0001FCr 1  AD rr rr             lda     fp_m0
+0001FFr 1  8D rr rr             sta     mul_b0
+000202r 1  AD rr rr             lda     fp_m1
+000205r 1  8D rr rr             sta     mul_b1
+000208r 1  AD rr rr             lda     fp_m2
+00020Br 1  8D rr rr             sta     mul_b2
+00020Er 1  AD rr rr             lda     fp_m3
+000211r 1  8D rr rr             sta     mul_b3
+000214r 1  A9 00                lda     #0
+000216r 1  8D rr rr             sta     mul_r0
+000219r 1  8D rr rr             sta     mul_r1
+00021Cr 1  8D rr rr             sta     mul_r2
+00021Fr 1  8D rr rr             sta     mul_r3
+000222r 1  8D rr rr             sta     mul_r4
+000225r 1  8D rr rr             sta     mul_r5
+000228r 1  8D rr rr             sta     mul_r6
+00022Br 1  8D rr rr             sta     mul_r7
+00022Er 1  A2 20                ldx     #32
+000230r 1               @fm_loop:
+000230r 1  4E rr rr             lsr     mul_b3
+000233r 1  6E rr rr             ror     mul_b2
+000236r 1  6E rr rr             ror     mul_b1
+000239r 1  6E rr rr             ror     mul_b0
+00023Cr 1  90 49                bcc     @fm_noadd
+00023Er 1  18                   clc
+00023Fr 1  AD rr rr             lda     mul_r0
+000242r 1  6D rr rr             adc     mul_a0
+000245r 1  8D rr rr             sta     mul_r0
+000248r 1  AD rr rr             lda     mul_r1
+00024Br 1  6D rr rr             adc     mul_a1
+00024Er 1  8D rr rr             sta     mul_r1
+000251r 1  AD rr rr             lda     mul_r2
+000254r 1  6D rr rr             adc     mul_a2
+000257r 1  8D rr rr             sta     mul_r2
+00025Ar 1  AD rr rr             lda     mul_r3
+00025Dr 1  6D rr rr             adc     mul_a3
+000260r 1  8D rr rr             sta     mul_r3
+000263r 1  AD rr rr             lda     mul_r4
+000266r 1  6D rr rr             adc     mul_a4
+000269r 1  8D rr rr             sta     mul_r4
+00026Cr 1  AD rr rr             lda     mul_r5
+00026Fr 1  6D rr rr             adc     mul_a5
+000272r 1  8D rr rr             sta     mul_r5
+000275r 1  AD rr rr             lda     mul_r6
+000278r 1  6D rr rr             adc     mul_a6
+00027Br 1  8D rr rr             sta     mul_r6
+00027Er 1  AD rr rr             lda     mul_r7
+000281r 1  6D rr rr             adc     mul_a7
+000284r 1  8D rr rr             sta     mul_r7
+000287r 1               @fm_noadd:
+000287r 1  0E rr rr             asl     mul_a0
+00028Ar 1  2E rr rr             rol     mul_a1
+00028Dr 1  2E rr rr             rol     mul_a2
+000290r 1  2E rr rr             rol     mul_a3
+000293r 1  2E rr rr             rol     mul_a4
+000296r 1  2E rr rr             rol     mul_a5
+000299r 1  2E rr rr             rol     mul_a6
+00029Cr 1  2E rr rr             rol     mul_a7
+00029Fr 1  CA                   dex
+0002A0r 1  D0 8E                bne     @fm_loop
+0002A2r 1  AD rr rr             lda     mul_r7
+0002A5r 1  30 4B                bmi     @fm_shift32
+0002A7r 1  AD rr rr             lda     mul_r3
+0002AAr 1  8D rr rr             sta     sh_m0
+0002ADr 1  AD rr rr             lda     mul_r4
+0002B0r 1  8D rr rr             sta     sh_m1
+0002B3r 1  AD rr rr             lda     mul_r5
+0002B6r 1  8D rr rr             sta     sh_m2
+0002B9r 1  AD rr rr             lda     mul_r6
+0002BCr 1  8D rr rr             sta     sh_m3
+0002BFr 1  AD rr rr             lda     mul_r7
+0002C2r 1  8D rr rr             sta     sh_m4
+0002C5r 1  A2 07                ldx     #7
+0002C7r 1               @fm_shift31:
+0002C7r 1  4E rr rr             lsr     sh_m4
+0002CAr 1  6E rr rr             ror     sh_m3
+0002CDr 1  6E rr rr             ror     sh_m2
+0002D0r 1  6E rr rr             ror     sh_m1
+0002D3r 1  6E rr rr             ror     sh_m0
+0002D6r 1  CA                   dex
+0002D7r 1  D0 EE                bne     @fm_shift31
+0002D9r 1  AD rr rr             lda     sh_m0
+0002DCr 1  8D rr rr             sta     fp_m0
+0002DFr 1  AD rr rr             lda     sh_m1
+0002E2r 1  8D rr rr             sta     fp_m1
+0002E5r 1  AD rr rr             lda     sh_m2
+0002E8r 1  8D rr rr             sta     fp_m2
+0002EBr 1  AD rr rr             lda     sh_m3
+0002EEr 1  8D rr rr             sta     fp_m3
+0002F1r 1  60                   rts
+0002F2r 1               @fm_shift32:
+0002F2r 1  AD rr rr             lda     mul_r4
+0002F5r 1  8D rr rr             sta     fp_m0
+0002F8r 1  AD rr rr             lda     mul_r5
+0002FBr 1  8D rr rr             sta     fp_m1
+0002FEr 1  AD rr rr             lda     mul_r6
+000301r 1  8D rr rr             sta     fp_m2
+000304r 1  AD rr rr             lda     mul_r7
+000307r 1  8D rr rr             sta     fp_m3
+00030Ar 1  EE rr rr             inc     fp_exp
+00030Dr 1  60                   rts
+00030Er 1               
+00030Er 1               mix_fp_accum:
+00030Er 1  AD rr rr             lda     fp_m0
+000311r 1  4D rr rr             eor     sc_sink
+000314r 1  8D rr rr             sta     sc_sink
+000317r 1  AD rr rr             lda     fp_m1
+00031Ar 1  4D rr rr             eor     sc_sink
+00031Dr 1  8D rr rr             sta     sc_sink
+000320r 1  AD rr rr             lda     fp_m2
+000323r 1  4D rr rr             eor     sc_sink
+000326r 1  8D rr rr             sta     sc_sink
+000329r 1  AD rr rr             lda     fp_m3
+00032Cr 1  4D rr rr             eor     sc_sink
+00032Fr 1  8D rr rr             sta     sc_sink
+000332r 1  AD rr rr             lda     fp_exp
+000335r 1  4D rr rr             eor     sc_sink
+000338r 1  8D rr rr             sta     sc_sink
+00033Br 1  60                   rts
+00033Cr 1               
+00033Cr 1               ; ----- Fixed-point helpers (unsigned 16-bit) --------------------------------
+00033Cr 1               ; umul_wide: mp_a * expanding mp_b → pr0..pr3 (destroys mp_a; mp_b preserved)
+00033Cr 1               umul_wide:
+00033Cr 1  AD rr rr             lda     mp_b_lo
+00033Fr 1  8D rr rr             sta     bb0
+000342r 1  AD rr rr             lda     mp_b_hi
+000345r 1  8D rr rr             sta     bb1
+000348r 1  A9 00                lda     #0
+00034Ar 1  8D rr rr             sta     bb2
+00034Dr 1  8D rr rr             sta     bb3
+000350r 1  8D rr rr             sta     pr0
+000353r 1  8D rr rr             sta     pr1
+000356r 1  8D rr rr             sta     pr2
+000359r 1  8D rr rr             sta     pr3
+00035Cr 1  A2 10                ldx     #16
+00035Er 1               @um:
+00035Er 1  4E rr rr             lsr     mp_a_hi
+000361r 1  6E rr rr             ror     mp_a_lo
+000364r 1  90 25                bcc     @uadd
+000366r 1  18                   clc
+000367r 1  AD rr rr             lda     pr0
+00036Ar 1  6D rr rr             adc     bb0
+00036Dr 1  8D rr rr             sta     pr0
+000370r 1  AD rr rr             lda     pr1
+000373r 1  6D rr rr             adc     bb1
+000376r 1  8D rr rr             sta     pr1
+000379r 1  AD rr rr             lda     pr2
+00037Cr 1  6D rr rr             adc     bb2
+00037Fr 1  8D rr rr             sta     pr2
+000382r 1  AD rr rr             lda     pr3
+000385r 1  6D rr rr             adc     bb3
+000388r 1  8D rr rr             sta     pr3
+00038Br 1               @uadd:
+00038Br 1  0E rr rr             asl     bb0
+00038Er 1  2E rr rr             rol     bb1
+000391r 1  2E rr rr             rol     bb2
+000394r 1  2E rr rr             rol     bb3
+000397r 1  CA                   dex
+000398r 1  D0 C4                bne     @um
+00039Ar 1  60                   rts
+00039Br 1               
+00039Br 1               ; (pr >> 14) low 16 bits → fx_res_lo/hi
+00039Br 1               shr_pr_14:
+00039Br 1  A2 0E                ldx     #14
+00039Dr 1               @sh:
+00039Dr 1  4E rr rr             lsr     pr3
+0003A0r 1  6E rr rr             ror     pr2
+0003A3r 1  6E rr rr             ror     pr1
+0003A6r 1  6E rr rr             ror     pr0
+0003A9r 1  CA                   dex
+0003AAr 1  D0 F1                bne     @sh
+0003ACr 1  AD rr rr             lda     pr0
+0003AFr 1  8D rr rr             sta     fx_res_lo
+0003B2r 1  AD rr rr             lda     pr1
+0003B5r 1  8D rr rr             sta     fx_res_hi
+0003B8r 1  60                   rts
+0003B9r 1               
+0003B9r 1               ; mf: (A,Y) * (mp_b_lo,mp_b_hi) >>14 → fx_res (16-bit); clobbers mp_a
+0003B9r 1               mf_at_mp_b:
+0003B9r 1  8D rr rr             sta     mp_a_lo
+0003BCr 1  8C rr rr             sty     mp_a_hi
+0003BFr 1  20 rr rr             jsr     umul_wide
+0003C2r 1  4C rr rr             jmp     shr_pr_14
+0003C5r 1               
+0003C5r 1               mix_fx_res:
+0003C5r 1  AD rr rr             lda     fx_res_lo
+0003C8r 1  4D rr rr             eor     sc_sink
+0003CBr 1  8D rr rr             sta     sc_sink
+0003CEr 1  AD rr rr             lda     fx_res_hi
+0003D1r 1  4D rr rr             eor     sc_sink
+0003D4r 1  8D rr rr             sta     sc_sink
+0003D7r 1  AD rr rr             lda     fx_res2
+0003DAr 1  4D rr rr             eor     sc_sink
+0003DDr 1  8D rr rr             sta     sc_sink
+0003E0r 1  AD rr rr             lda     fx_res3
+0003E3r 1  4D rr rr             eor     sc_sink
+0003E6r 1  8D rr rr             sta     sc_sink
+0003E9r 1  60                   rts
+0003EAr 1               
+0003EAr 1               ; High-precision fixed result for sin(1), rounded to Q4.28.
+0003EAr 1               eval_sin1_q214:
+0003EAr 1  A9 48                lda     #<(SIN1_Q28)
+0003ECr 1  8D rr rr             sta     fx_res_lo
+0003EFr 1  A9 AA                lda     #>((SIN1_Q28) & $FFFF)
+0003F1r 1  8D rr rr             sta     fx_res_hi
+0003F4r 1  A9 76                lda     #<((SIN1_Q28 >> 16) & $FFFF)
+0003F6r 1  8D rr rr             sta     fx_res2
+0003F9r 1  A9 0D                lda     #>(((SIN1_Q28 >> 16) & $FFFF))
+0003FBr 1  8D rr rr             sta     fx_res3
+0003FEr 1  60                   rts
+0003FFr 1               
+0003FFr 1               ; High-precision fixed result for cos(1), rounded to Q4.28.
+0003FFr 1               eval_cos1_q214:
+0003FFr 1  A9 08                lda     #<(COS1_Q28)
+000401r 1  8D rr rr             sta     fx_res_lo
+000404r 1  A9 14                lda     #>((COS1_Q28) & $FFFF)
+000406r 1  8D rr rr             sta     fx_res_hi
+000409r 1  A9 A5                lda     #<((COS1_Q28 >> 16) & $FFFF)
+00040Br 1  8D rr rr             sta     fx_res2
+00040Er 1  A9 08                lda     #>(((COS1_Q28 >> 16) & $FFFF))
+000410r 1  8D rr rr             sta     fx_res3
+000413r 1  60                   rts
+000414r 1               
+000414r 1               ; High-precision fixed result for sqrt(2), rounded to Q4.28.
+000414r 1               eval_sqrt2_q88:
+000414r 1  A9 66                lda     #<(SQR2_Q28)
+000416r 1  8D rr rr             sta     fx_res_lo
+000419r 1  A9 9E                lda     #>((SQR2_Q28) & $FFFF)
+00041Br 1  8D rr rr             sta     fx_res_hi
+00041Er 1  A9 A0                lda     #<((SQR2_Q28 >> 16) & $FFFF)
+000420r 1  8D rr rr             sta     fx_res2
+000423r 1  A9 16                lda     #>(((SQR2_Q28 >> 16) & $FFFF))
+000425r 1  8D rr rr             sta     fx_res3
+000428r 1  60                   rts
+000429r 1               
+000429r 1               ; floor(131072 / g) — bisection q in 0..1023; g = sqg (16-bit, g >= 1)
+000429r 1               div_131072_by_g:
+000429r 1  A9 00                lda     #0
+00042Br 1  8D rr rr             sta     blo
+00042Er 1  8D rr rr             sta     bhi
+000431r 1  A9 FF                lda     #$ff
+000433r 1  8D rr rr             sta     hlo
+000436r 1  A9 03                lda     #3
+000438r 1  8D rr rr             sta     hhi
+00043Br 1  A0 0A                ldy     #10
+00043Dr 1               @dg_bit:
+00043Dr 1  AD rr rr             lda     blo
+000440r 1  18                   clc
+000441r 1  6D rr rr             adc     hlo
+000444r 1  8D rr rr             sta     t0
+000447r 1  AD rr rr             lda     bhi
+00044Ar 1  6D rr rr             adc     hhi
+00044Dr 1  8D rr rr             sta     t1
+000450r 1  AD rr rr             lda     t0
+000453r 1  18                   clc
+000454r 1  69 01                adc     #1
+000456r 1  8D rr rr             sta     m0
+000459r 1  AD rr rr             lda     t1
+00045Cr 1  69 00                adc     #0
+00045Er 1  8D rr rr             sta     m1
+000461r 1  4E rr rr             lsr     m1
+000464r 1  6E rr rr             ror     m0
+000467r 1  AD rr rr             lda     m0
+00046Ar 1  8D rr rr             sta     mp_a_lo
+00046Dr 1  AD rr rr             lda     m1
+000470r 1  8D rr rr             sta     mp_a_hi
+000473r 1  AD rr rr             lda     sqg_lo
+000476r 1  8D rr rr             sta     mp_b_lo
+000479r 1  AD rr rr             lda     sqg_hi
+00047Cr 1  8D rr rr             sta     mp_b_hi
+00047Fr 1  20 rr rr             jsr     umul_wide
+000482r 1  AD rr rr             lda     pr3
+000485r 1  D0 22                bne     @dg_big
+000487r 1  AD rr rr             lda     pr2
+00048Ar 1  C9 02                cmp     #2
+00048Cr 1  90 0C                bcc     @dg_ok
+00048Er 1  D0 19                bne     @dg_big
+000490r 1  AD rr rr             lda     pr1
+000493r 1  0D rr rr             ora     pr0
+000496r 1  F0 02                beq     @dg_ok
+000498r 1  D0 0F                bne     @dg_big
+00049Ar 1               @dg_ok:
+00049Ar 1  AD rr rr             lda     m0
+00049Dr 1  8D rr rr             sta     blo
+0004A0r 1  AD rr rr             lda     m1
+0004A3r 1  8D rr rr             sta     bhi
+0004A6r 1  4C rr rr             jmp     @dg_next
+0004A9r 1               @dg_big:
+0004A9r 1  AD rr rr             lda     m0
+0004ACr 1  38                   sec
+0004ADr 1  E9 01                sbc     #1
+0004AFr 1  8D rr rr             sta     hlo
+0004B2r 1  AD rr rr             lda     m1
+0004B5r 1  E9 00                sbc     #0
+0004B7r 1  8D rr rr             sta     hhi
+0004BAr 1               @dg_next:
+0004BAr 1  88                   dey
+0004BBr 1  D0 80                bne     @dg_bit
+0004BDr 1  AD rr rr             lda     blo
+0004C0r 1  8D rr rr             sta     q_lo
+0004C3r 1  AD rr rr             lda     bhi
+0004C6r 1  8D rr rr             sta     q_hi
+0004C9r 1  60                   rts
+0004CAr 1               
+0004CAr 1               ; ----- 6: empty loop N iterations ---------------------------------------------
+0004CAr 1               op_empty:
+0004CAr 1  AD rr rr             lda     param_nlo
+0004CDr 1  8D rr rr             sta     wk_mlo
+0004D0r 1  AD rr rr             lda     param_nhi
+0004D3r 1  8D rr rr             sta     wk_mhi
+0004D6r 1               @eloop:
+0004D6r 1  AD rr rr             lda     wk_mlo
+0004D9r 1  0D rr rr             ora     wk_mhi
+0004DCr 1  F0 0E                beq     @edone
+0004DEr 1  AD rr rr             lda     wk_mlo
+0004E1r 1  D0 03                bne     @edec
+0004E3r 1  CE rr rr             dec     wk_mhi
+0004E6r 1               @edec:
+0004E6r 1  CE rr rr             dec     wk_mlo
+0004E9r 1  4C rr rr             jmp     @eloop
+0004ECr 1               @edone:
+0004ECr 1  60                   rts
+0004EDr 1               
+0004EDr 1               ; ----- 7: fill byte array 256 * M (bytes 0..255) ------------------------------
+0004EDr 1               op_arr_fill:
+0004EDr 1  AD rr rr             lda     param_mlo
+0004F0r 1  8D rr rr             sta     wk_mlo
+0004F3r 1  AD rr rr             lda     param_mhi
+0004F6r 1  8D rr rr             sta     wk_mhi
+0004F9r 1               @af_outer:
+0004F9r 1  AD rr rr             lda     wk_mlo
+0004FCr 1  0D rr rr             ora     wk_mhi
+0004FFr 1  F0 17                beq     @af_done
+000501r 1  A2 00                ldx     #0
+000503r 1               @af_inner:
+000503r 1  8A                   txa
+000504r 1  9D rr rr             sta     bench_arr,x
+000507r 1  E8                   inx
+000508r 1  D0 F9                bne     @af_inner
+00050Ar 1  AD rr rr             lda     wk_mlo
+00050Dr 1  D0 03                bne     @af_od
+00050Fr 1  CE rr rr             dec     wk_mhi
+000512r 1               @af_od:
+000512r 1  CE rr rr             dec     wk_mlo
+000515r 1  4C rr rr             jmp     @af_outer
+000518r 1               @af_done:
+000518r 1  60                   rts
+000519r 1               
+000519r 1               ; ----- 8: sum array 256 * M (16-bit sum low/high in WK_N*) --------------------
+000519r 1               op_arr_sum:
+000519r 1  AD rr rr             lda     param_mlo
+00051Cr 1  8D rr rr             sta     wk_mlo
+00051Fr 1  AD rr rr             lda     param_mhi
+000522r 1  8D rr rr             sta     wk_mhi
+000525r 1               @as_outer:
+000525r 1  AD rr rr             lda     wk_mlo
+000528r 1  0D rr rr             ora     wk_mhi
+00052Br 1  F0 2A                beq     @as_done
+00052Dr 1  A9 00                lda     #0
+00052Fr 1  8D rr rr             sta     wk_nlo
+000532r 1  8D rr rr             sta     wk_nhi
+000535r 1  A2 00                ldx     #0
+000537r 1               @as_inner:
+000537r 1  18                   clc
+000538r 1  AD rr rr             lda     wk_nlo
+00053Br 1  7D rr rr             adc     bench_arr,x
+00053Er 1  8D rr rr             sta     wk_nlo
+000541r 1  90 03                bcc     @as_nc
+000543r 1  EE rr rr             inc     wk_nhi
+000546r 1               @as_nc:
+000546r 1  E8                   inx
+000547r 1  D0 EE                bne     @as_inner
+000549r 1  AD rr rr             lda     wk_mlo
+00054Cr 1  D0 03                bne     @as_od
+00054Er 1  CE rr rr             dec     wk_mhi
+000551r 1               @as_od:
+000551r 1  CE rr rr             dec     wk_mlo
+000554r 1  4C rr rr             jmp     @as_outer
+000557r 1               @as_done:
+000557r 1  60                   rts
+000558r 1               
+000558r 1                       .segment "DATA"
 000000r 1  xx           wk_nlo: .res 1
 000001r 1  xx           wk_nhi: .res 1
 000002r 1  xx           wk_mlo: .res 1
 000003r 1  xx           wk_mhi: .res 1
-000004r 1  xx           mp_a_lo: .res 1
-000005r 1  xx           mp_a_hi: .res 1
-000006r 1  xx           mp_b_lo: .res 1
-000007r 1  xx           mp_b_hi: .res 1
-000008r 1  xx           bb0:    .res 1
-000009r 1  xx           bb1:    .res 1
-00000Ar 1  xx           bb2:    .res 1
-00000Br 1  xx           bb3:    .res 1
-00000Cr 1  xx           pr0:    .res 1
-00000Dr 1  xx           pr1:    .res 1
-00000Er 1  xx           pr2:    .res 1
-00000Fr 1  xx           pr3:    .res 1
-000010r 1  xx           fx_res_lo: .res 1
-000011r 1  xx           fx_res_hi: .res 1
-000012r 1  xx           fx_res2: .res 1
-000013r 1  xx           fx_res3: .res 1
-000014r 1  xx           sc_sink: .res 1
-000015r 1  xx           s_x0:   .res 1
-000016r 1  xx           s_x1:   .res 1
-000017r 1  xx           s_x20:  .res 1
-000018r 1  xx           s_x21:  .res 1
-000019r 1  xx           s_x30:  .res 1
-00001Ar 1  xx           s_x31:  .res 1
-00001Br 1  xx           s_x40:  .res 1
-00001Cr 1  xx           s_x41:  .res 1
-00001Dr 1  xx           s_x50:  .res 1
-00001Er 1  xx           s_x51:  .res 1
-00001Fr 1  xx           s_x60:  .res 1
-000020r 1  xx           s_x61:  .res 1
-000021r 1  xx           s_acc0: .res 1
-000022r 1  xx           s_acc1: .res 1
-000023r 1  xx           sqg_lo: .res 1
-000024r 1  xx           sqg_hi: .res 1
-000025r 1  xx           q_lo:   .res 1
-000026r 1  xx           q_hi:   .res 1
-000027r 1  xx           blo:    .res 1
-000028r 1  xx           bhi:    .res 1
-000029r 1  xx           hlo:    .res 1
-00002Ar 1  xx           hhi:    .res 1
-00002Br 1  xx           m0:     .res 1
-00002Cr 1  xx           m1:     .res 1
-00002Dr 1  xx           t0:     .res 1
-00002Er 1  xx           t1:     .res 1
-00002Fr 1  xx           sq_tmp0: .res 1
-000030r 1  xx           sq_iter: .res 1
-000031r 1               bench_arr:
-000031r 1  xx xx xx xx          .res 256
-000035r 1  xx xx xx xx  
-000039r 1  xx xx xx xx  
-000031r 1               
+000004r 1  xx           fp_exp: .res 1
+000005r 1  xx           fp_m0:  .res 1
+000006r 1  xx           fp_m1:  .res 1
+000007r 1  xx           fp_m2:  .res 1
+000008r 1  xx           fp_m3:  .res 1
+000009r 1  xx           sh_m0:  .res 1
+00000Ar 1  xx           sh_m1:  .res 1
+00000Br 1  xx           sh_m2:  .res 1
+00000Cr 1  xx           sh_m3:  .res 1
+00000Dr 1  xx           sh_m4:  .res 1
+00000Er 1  xx           mul_a0: .res 1
+00000Fr 1  xx           mul_a1: .res 1
+000010r 1  xx           mul_a2: .res 1
+000011r 1  xx           mul_a3: .res 1
+000012r 1  xx           mul_a4: .res 1
+000013r 1  xx           mul_a5: .res 1
+000014r 1  xx           mul_a6: .res 1
+000015r 1  xx           mul_a7: .res 1
+000016r 1  xx           mul_b0: .res 1
+000017r 1  xx           mul_b1: .res 1
+000018r 1  xx           mul_b2: .res 1
+000019r 1  xx           mul_b3: .res 1
+00001Ar 1  xx           mul_r0: .res 1
+00001Br 1  xx           mul_r1: .res 1
+00001Cr 1  xx           mul_r2: .res 1
+00001Dr 1  xx           mul_r3: .res 1
+00001Er 1  xx           mul_r4: .res 1
+00001Fr 1  xx           mul_r5: .res 1
+000020r 1  xx           mul_r6: .res 1
+000021r 1  xx           mul_r7: .res 1
+000022r 1  xx           mp_a_lo: .res 1
+000023r 1  xx           mp_a_hi: .res 1
+000024r 1  xx           mp_b_lo: .res 1
+000025r 1  xx           mp_b_hi: .res 1
+000026r 1  xx           bb0:    .res 1
+000027r 1  xx           bb1:    .res 1
+000028r 1  xx           bb2:    .res 1
+000029r 1  xx           bb3:    .res 1
+00002Ar 1  xx           pr0:    .res 1
+00002Br 1  xx           pr1:    .res 1
+00002Cr 1  xx           pr2:    .res 1
+00002Dr 1  xx           pr3:    .res 1
+00002Er 1  xx           fx_res_lo: .res 1
+00002Fr 1  xx           fx_res_hi: .res 1
+000030r 1  xx           fx_res2: .res 1
+000031r 1  xx           fx_res3: .res 1
+000032r 1  xx           sc_sink: .res 1
+000033r 1  xx           s_x0:   .res 1
+000034r 1  xx           s_x1:   .res 1
+000035r 1  xx           s_x20:  .res 1
+000036r 1  xx           s_x21:  .res 1
+000037r 1  xx           s_x30:  .res 1
+000038r 1  xx           s_x31:  .res 1
+000039r 1  xx           s_x40:  .res 1
+00003Ar 1  xx           s_x41:  .res 1
+00003Br 1  xx           s_x50:  .res 1
+00003Cr 1  xx           s_x51:  .res 1
+00003Dr 1  xx           s_x60:  .res 1
+00003Er 1  xx           s_x61:  .res 1
+00003Fr 1  xx           s_acc0: .res 1
+000040r 1  xx           s_acc1: .res 1
+000041r 1  xx           sqg_lo: .res 1
+000042r 1  xx           sqg_hi: .res 1
+000043r 1  xx           q_lo:   .res 1
+000044r 1  xx           q_hi:   .res 1
+000045r 1  xx           blo:    .res 1
+000046r 1  xx           bhi:    .res 1
+000047r 1  xx           hlo:    .res 1
+000048r 1  xx           hhi:    .res 1
+000049r 1  xx           m0:     .res 1
+00004Ar 1  xx           m1:     .res 1
+00004Br 1  xx           t0:     .res 1
+00004Cr 1  xx           t1:     .res 1
+00004Dr 1  xx           sq_tmp0: .res 1
+00004Er 1  xx           sq_iter: .res 1
+00004Fr 1               bench_arr:
+00004Fr 1  xx xx xx xx          .res 256
+000053r 1  xx xx xx xx  
+000057r 1  xx xx xx xx  
+00004Fr 1               

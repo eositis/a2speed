@@ -36,7 +36,7 @@ So a **full run of all three** (Applesoft once, then both cc65 binaries) on a st
 
 | Suite | Program | Tests |
 |-------|---------|--------|
-| **Applesoft** | `A2SPEED.bas` | ProDOS: `BLOAD BENCHML,A$6000` then `BLOAD CLOCKDRV,A$7000`. Same tests run **twice** per line (Applesoft then ML **`CALL $6000`** with params at **`$6003..$6007`** inside the BENCHML image — not high RAM near HIMEM). See `applesoft/a2benchml.s`. MATH: int/float add **5000** iters; float mul **1500**; SQR **500**; SIN/COS **500**; COMPUTE: empty loop **10000**; array fill/sum **256×10**; times in **seconds** via CLOCKDRV. |
+| **Applesoft** | `A2SPEED.bas` | ProDOS: `BLOAD BENCHML,A$6000` then `BLOAD CLOCKDRV,A$7000`. Same tests run **twice** per line (Applesoft then ML **`CALL $6000`** with params at **`$6003..$6007`** inside the BENCHML image — not high RAM near HIMEM). See `applesoft/a2benchml.s`. MATH: int/float add **5000** iters; float mul **1500**; SQR **500**; SIN/COS **500**. The ML float add/mul path uses its own software floating-point implementation rather than Applesoft ROM routines. COMPUTE: empty loop **10000**; array fill/sum **256×10**; times in **seconds** via CLOCKDRV. |
 | **cc65 (6502)** | `A2SPEED_6502` | MATH: integer add (N=1000), integer mul/add loop (N=1000). COMPUTE: empty loop (5000), array fill 256×100, array sum 256×100. Optional: MegaFlash FPU (FADD/FMUL/FSQR ×500) if card present. |
 | **cc65 (65C02)** | `A2SPEED_65C02` | Same tests as 6502 build; code is 65C02-optimized. |
 | **MegaFlash FPU** | (inside cc65 run) | FADD (1.0+1.0), FMUL (1.0×1.0), FSQR (√1.0), each in a loop of 500 iterations; timed in jiffies. |

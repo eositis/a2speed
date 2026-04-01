@@ -1,18 +1,16 @@
 Modules list:
 -------------
 a2benchml.o:
-    CODE              Offs=000000  Size=000350  Align=00001  Fill=0000
-    RODATA            Offs=000000  Size=000005  Align=00001  Fill=0000
-    DATA              Offs=000000  Size=000131  Align=00001  Fill=0000
+    CODE              Offs=000000  Size=000558  Align=00001  Fill=0000
+    DATA              Offs=000000  Size=00014F  Align=00001  Fill=0000
 
 
 Segment list:
 -------------
 Name                   Start     End    Size  Align
 ----------------------------------------------------
-CODE                  006000  00634F  000350  00001
-RODATA                006350  006354  000005  00001
-DATA                  006355  006485  000131  00001
+CODE                  006000  006557  000558  00001
+DATA                  006558  0066A6  00014F  00001
 
 
 Exports list by name:

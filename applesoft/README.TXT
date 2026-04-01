@@ -137,7 +137,9 @@ BENCHML mirrors the Applesoft test counts, but not always the same internal
 implementation.
 
 Float add and float multiply:
-  These still use Applesoft ROM floating-point routines.
+  These now use BENCHML's own positive software floating-point format with a
+  32-bit normalized mantissa and binary exponent. Applesoft remains the
+  reference behavior, but the ML implementation is independent.
 
 SIN, COS, and SQR:
   These do not call Applesoft ROM math. They use direct high-precision

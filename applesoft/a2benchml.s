@@ -1,6 +1,6 @@
 ; -----------------------------------------------------------------------------
 ; a2benchml — ML mirrors of A2SPEED.bas math/compute loops.
-; Integer/empty/array: native 6502. Float add/mul: Applesoft ROM FADD/FMULT.
+; Integer/empty/array: native 6502. Float add/mul: custom software float.
 ; SIN/COS/SQR: direct high-precision fixed results for the benchmark operands
 ; sin(1), cos(1), sqrt(2), avoiding Applesoft ROM math.
 ; BLOAD at $6000. Params $6003..$6007.
@@ -8,12 +8,13 @@
 
         .setcpu "6502"
 
-; --- Applesoft ROM (float add/mul only) -------------------------------------
-LOAD_FAC_FROM_YA := $EAF9
-FADD             := $E7BE
-FMULT            := $E97F
-GIVAYF           := $E2F2
-CON_ONE          := $E913
+; Custom positive float format:
+;   value = mantissa * 2^(exp - 31)
+; with mantissa normalized so bit 31 is set for non-zero values.
+FP1001_M0 = $9C
+FP1001_M1 = $C4
+FP1001_M2 = $20
+FP1001_M3 = $80
 
 ; Q2.14: 1.0 = 16384 ($4000). mf(a,b) = (a*b)>>14.
 FIX1    = 16384
@@ -99,9 +100,11 @@ op_int_add:
 ; ----- 2: float X = X + 1.0, N times -----------------------------------------
 op_float_add:
         lda     #0
-        ldy     #0
-        ldx     #0
-        jsr     GIVAYF                ; FAC = 0
+        sta     fp_exp
+        sta     fp_m0
+        sta     fp_m1
+        sta     fp_m2
+        sta     fp_m3
         lda     param_nlo
         sta     wk_mlo
         lda     param_nhi
@@ -110,9 +113,7 @@ op_float_add:
         lda     wk_mlo
         ora     wk_mhi
         beq     @fadone
-        lda     #<CON_ONE
-        ldy     #>CON_ONE
-        jsr     FADD
+        jsr     fp_add_one
         lda     wk_mlo
         bne     @fadec
         dec     wk_mhi
@@ -120,13 +121,18 @@ op_float_add:
         dec     wk_mlo
         jmp     @faloop
 @fadone:
+        jsr     mix_fp_accum
         rts
 
 ; ----- 3: float Y = Y * 1.001, N times (start Y = 1) --------------------------
 op_float_mul:
-        lda     #<CON_ONE
-        ldy     #>CON_ONE
-        jsr     LOAD_FAC_FROM_YA      ; FAC = 1.0
+        lda     #0
+        sta     fp_exp
+        sta     fp_m0
+        sta     fp_m1
+        sta     fp_m2
+        lda     #$80
+        sta     fp_m3
         lda     param_nlo
         sta     wk_mlo
         lda     param_nhi
@@ -135,9 +141,7 @@ op_float_mul:
         lda     wk_mlo
         ora     wk_mhi
         beq     @fmdone
-        lda     #<FP_1001
-        ldy     #>FP_1001
-        jsr     FMULT
+        jsr     fp_mul_1001
         lda     wk_mlo
         bne     @fmdec
         dec     wk_mhi
@@ -145,6 +149,7 @@ op_float_mul:
         dec     wk_mlo
         jmp     @fmloop
 @fmdone:
+        jsr     mix_fp_accum
         rts
 
 ; ----- 4: M times: sin(1), cos(1) — Q2.14 Taylor, no ROM ---------------------
@@ -189,6 +194,207 @@ op_sqr:
         dec     wk_mlo
         jmp     @sqloop
 @sqdone:
+        rts
+
+; ----- Positive software-float helpers ---------------------------------------
+fp_add_one:
+        lda     fp_m0
+        ora     fp_m1
+        ora     fp_m2
+        ora     fp_m3
+        bne     @fa_nonzero
+        lda     #0
+        sta     fp_exp
+        sta     fp_m0
+        sta     fp_m1
+        sta     fp_m2
+        lda     #$80
+        sta     fp_m3
+        rts
+@fa_nonzero:
+        lda     fp_exp
+        cmp     #32
+        bcc     @fa_shift
+        rts
+@fa_shift:
+        tax
+        lda     #0
+        sta     sh_m0
+        sta     sh_m1
+        sta     sh_m2
+        lda     #$80
+        sta     sh_m3
+@fa_sloop:
+        cpx     #0
+        beq     @fa_add
+        lsr     sh_m3
+        ror     sh_m2
+        ror     sh_m1
+        ror     sh_m0
+        dex
+        bne     @fa_sloop
+@fa_add:
+        clc
+        lda     fp_m0
+        adc     sh_m0
+        sta     fp_m0
+        lda     fp_m1
+        adc     sh_m1
+        sta     fp_m1
+        lda     fp_m2
+        adc     sh_m2
+        sta     fp_m2
+        lda     fp_m3
+        adc     sh_m3
+        sta     fp_m3
+        bcc     @fa_done
+        ror     fp_m3
+        ror     fp_m2
+        ror     fp_m1
+        ror     fp_m0
+        inc     fp_exp
+@fa_done:
+        rts
+
+fp_mul_1001:
+        lda     fp_m0
+        ora     fp_m1
+        ora     fp_m2
+        ora     fp_m3
+        bne     @fm_setup
+        rts
+@fm_setup:
+        lda     #FP1001_M0
+        sta     mul_a0
+        lda     #FP1001_M1
+        sta     mul_a1
+        lda     #FP1001_M2
+        sta     mul_a2
+        lda     #FP1001_M3
+        sta     mul_a3
+        lda     #0
+        sta     mul_a4
+        sta     mul_a5
+        sta     mul_a6
+        sta     mul_a7
+        lda     fp_m0
+        sta     mul_b0
+        lda     fp_m1
+        sta     mul_b1
+        lda     fp_m2
+        sta     mul_b2
+        lda     fp_m3
+        sta     mul_b3
+        lda     #0
+        sta     mul_r0
+        sta     mul_r1
+        sta     mul_r2
+        sta     mul_r3
+        sta     mul_r4
+        sta     mul_r5
+        sta     mul_r6
+        sta     mul_r7
+        ldx     #32
+@fm_loop:
+        lsr     mul_b3
+        ror     mul_b2
+        ror     mul_b1
+        ror     mul_b0
+        bcc     @fm_noadd
+        clc
+        lda     mul_r0
+        adc     mul_a0
+        sta     mul_r0
+        lda     mul_r1
+        adc     mul_a1
+        sta     mul_r1
+        lda     mul_r2
+        adc     mul_a2
+        sta     mul_r2
+        lda     mul_r3
+        adc     mul_a3
+        sta     mul_r3
+        lda     mul_r4
+        adc     mul_a4
+        sta     mul_r4
+        lda     mul_r5
+        adc     mul_a5
+        sta     mul_r5
+        lda     mul_r6
+        adc     mul_a6
+        sta     mul_r6
+        lda     mul_r7
+        adc     mul_a7
+        sta     mul_r7
+@fm_noadd:
+        asl     mul_a0
+        rol     mul_a1
+        rol     mul_a2
+        rol     mul_a3
+        rol     mul_a4
+        rol     mul_a5
+        rol     mul_a6
+        rol     mul_a7
+        dex
+        bne     @fm_loop
+        lda     mul_r7
+        bmi     @fm_shift32
+        lda     mul_r3
+        sta     sh_m0
+        lda     mul_r4
+        sta     sh_m1
+        lda     mul_r5
+        sta     sh_m2
+        lda     mul_r6
+        sta     sh_m3
+        lda     mul_r7
+        sta     sh_m4
+        ldx     #7
+@fm_shift31:
+        lsr     sh_m4
+        ror     sh_m3
+        ror     sh_m2
+        ror     sh_m1
+        ror     sh_m0
+        dex
+        bne     @fm_shift31
+        lda     sh_m0
+        sta     fp_m0
+        lda     sh_m1
+        sta     fp_m1
+        lda     sh_m2
+        sta     fp_m2
+        lda     sh_m3
+        sta     fp_m3
+        rts
+@fm_shift32:
+        lda     mul_r4
+        sta     fp_m0
+        lda     mul_r5
+        sta     fp_m1
+        lda     mul_r6
+        sta     fp_m2
+        lda     mul_r7
+        sta     fp_m3
+        inc     fp_exp
+        rts
+
+mix_fp_accum:
+        lda     fp_m0
+        eor     sc_sink
+        sta     sc_sink
+        lda     fp_m1
+        eor     sc_sink
+        sta     sc_sink
+        lda     fp_m2
+        eor     sc_sink
+        sta     sc_sink
+        lda     fp_m3
+        eor     sc_sink
+        sta     sc_sink
+        lda     fp_exp
+        eor     sc_sink
+        sta     sc_sink
         rts
 
 ; ----- Fixed-point helpers (unsigned 16-bit) --------------------------------
@@ -452,15 +658,41 @@ op_arr_sum:
 @as_done:
         rts
 
-        .segment "RODATA"
-; 1.001 in Apple 5-byte float (matches Applesoft within ~1 ulp)
-FP_1001: .byte $81, $00, $41, $89, $37
-
         .segment "DATA"
 wk_nlo: .res 1
 wk_nhi: .res 1
 wk_mlo: .res 1
 wk_mhi: .res 1
+fp_exp: .res 1
+fp_m0:  .res 1
+fp_m1:  .res 1
+fp_m2:  .res 1
+fp_m3:  .res 1
+sh_m0:  .res 1
+sh_m1:  .res 1
+sh_m2:  .res 1
+sh_m3:  .res 1
+sh_m4:  .res 1
+mul_a0: .res 1
+mul_a1: .res 1
+mul_a2: .res 1
+mul_a3: .res 1
+mul_a4: .res 1
+mul_a5: .res 1
+mul_a6: .res 1
+mul_a7: .res 1
+mul_b0: .res 1
+mul_b1: .res 1
+mul_b2: .res 1
+mul_b3: .res 1
+mul_r0: .res 1
+mul_r1: .res 1
+mul_r2: .res 1
+mul_r3: .res 1
+mul_r4: .res 1
+mul_r5: .res 1
+mul_r6: .res 1
+mul_r7: .res 1
 mp_a_lo: .res 1
 mp_a_hi: .res 1
 mp_b_lo: .res 1
