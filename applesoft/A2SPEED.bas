@@ -54,13 +54,25 @@
 186 T = T1 + E
 187 IF T >= 86400 THEN T = T - 86400
 192 RETURN
-194 REM ----- One row: fixed cols (POS fails in 80-col); label 32 + time CW + time CW -----
+194 REM ----- One row: fixed cols; label 32 + AppleSoft + ML + two ref %% cols -----
 195 P1$ = MID$(L$ + PS32$, 1, 32)
 196 SF = ES: GOSUB 226: A1$ = TF$
 197 SF = EM: GOSUB 226: A2$ = TF$
-198 PRINT P1$; A1$; A2$
-199 RETURN
-200 REM ----- ML bench: BO,N,M; POKE PA..; CALL CA; sets EM (EL2 aliases EL in Applesoft)
+198 AV = ES: RV = RA: GOSUB 240: A3$ = PF$
+199 AV = EM: RV = RM: GOSUB 240: A4$ = PF$
+200 PRINT P1$; A1$; A2$; A3$; A4$
+201 RETURN
+205 REM ----- Set stock Apple IIc reference times for current BO -----
+206 IF BO = 1 THEN RA = 33.36: RM = .22: RETURN
+207 IF BO = 2 THEN RA = 37.36: RM = 2.1: RETURN
+208 IF BO = 3 THEN RA = 28.99: RM = 3.9: RETURN
+209 IF BO = 4 THEN RA = 28.82: RM = .15: RETURN
+210 IF BO = 5 THEN RA = 24.52: RM = .11: RETURN
+211 IF BO = 6 THEN RA = 19.69: RM = .3: RETURN
+212 IF BO = 7 THEN RA = 16.19: RM = 1.68: RETURN
+213 IF BO = 8 THEN RA = 25.08: RM = 3.2: RETURN
+214 RA = 0: RM = 0: RETURN
+215 REM ----- ML bench: BO,N,M; POKE PA..; CALL CA; sets EM (EL2 aliases EL in Applesoft)
 220 POKE PA, BO
 221 POKE PA + 1, N - 256 * INT(N / 256): POKE PA + 2, INT(N / 256)
 222 POKE PA + 3, M - 256 * INT(M / 256): POKE PA + 4, INT(M / 256)
@@ -72,6 +84,13 @@
 228 IF LEN(TF$) > CW THEN TF$ = MID$(TF$, LEN(TF$) - CW + 1, CW)
 229 IF LEN(TF$) < CW THEN TF$ = " " + TF$: GOTO 229
 230 RETURN
+240 REM ----- PF$: reference performance = REF / ACTUAL * 100 (higher is faster) -----
+241 IF AV <= 0 OR RV <= 0 THEN PF$ = "      --": RETURN
+242 PV = INT(RV / AV * 100 + 0.5)
+243 PF$ = STR$(PV) + "%"
+244 IF LEN(PF$) > 8 THEN PF$ = MID$(PF$, LEN(PF$) - 7, 8)
+245 IF LEN(PF$) < 8 THEN PF$ = " " + PF$: GOTO 245
+246 RETURN
 400 REM ========== CLOCK DRIVER (ProDOS) ==========
 405 PRINT : PRINT "--- CLOCK / DRIVER ---"
 418 PRINT CHR$(4)"BLOAD BENCHML,A$6000"
@@ -107,57 +126,57 @@
 492 GOTO 500
 500 REM ========== MATH BENCHMARKS ==========
 505 PRINT : PRINT "--- MATH ---"
-508 REM Same widths as GOSUB 194: 32 + 12 + 12
-509 H1$ = MID$("TEST" + PS32$, 1, 32): H2$ = "   AppleSoft": H3$ = "          ML": PRINT H1$; H2$; H3$
+508 REM Same widths as GOSUB 194: 32 + 12 + 12 + 8 + 8
+509 H1$ = MID$("TEST" + PS32$, 1, 32): H2$ = "   AppleSoft": H3$ = "          ML": H4$ = "  A Ref%": H5$ = "  M Ref%": PRINT H1$; H2$; H3$; H4$; H5$
 515 N = 5000
 520 GOSUB 130: T1 = T
 525 A = 0: FOR I = 1 TO N: A = A + 1: NEXT I
 532 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-533 ES = EL: BO = 1: GOSUB 220
+533 ES = EL: BO = 1: GOSUB 220: GOSUB 205
 534 L$ = "Integer add (1 to " + STR$(N) + ")": GOSUB 194
 545 GOSUB 130: T1 = T
 550 X = 0: FOR I = 1 TO N: X = X + 1.0: NEXT I
 557 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-558 ES = EL: BO = 2: GOSUB 220
+558 ES = EL: BO = 2: GOSUB 220: GOSUB 205
 559 L$ = "Float add (1 to " + STR$(N) + ")": GOSUB 194
 565 N = 1500
 572 GOSUB 130: T1 = T
 575 Y = 1: FOR I = 1 TO N: Y = Y * 1.001: NEXT I
 582 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-583 ES = EL: BO = 3: GOSUB 220
+583 ES = EL: BO = 3: GOSUB 220: GOSUB 205
 584 L$ = "Float mul (1.001^" + STR$(N) + ")": GOSUB 194
 595 M = 500
 598 GOSUB 130: T1 = T
 600 FOR I = 1 TO M: Z = SIN(1): Z = COS(1): NEXT I
 607 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-608 ES = EL: BO = 4: GOSUB 220
+608 ES = EL: BO = 4: GOSUB 220: GOSUB 205
 609 L$ = "SIN/COS x" + STR$(M): GOSUB 194
 620 N = 500
 622 GOSUB 130: T1 = T
 625 FOR I = 1 TO N: Z = SQR(2): NEXT I
 632 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-633 ES = EL: BO = 5: GOSUB 220
+633 ES = EL: BO = 5: GOSUB 220: GOSUB 205
 634 L$ = "SQR(2) x" + STR$(N): GOSUB 194
 640 REM ========== COMPUTE BENCHMARKS ==========
 645 PRINT : PRINT "--- COMPUTE ---"
-648 H1$ = MID$("TEST" + PS32$, 1, 32): H2$ = "   AppleSoft": H3$ = "          ML": PRINT H1$; H2$; H3$
+648 H1$ = MID$("TEST" + PS32$, 1, 32): H2$ = "   AppleSoft": H3$ = "          ML": H4$ = "  A Ref%": H5$ = "  M Ref%": PRINT H1$; H2$; H3$; H4$; H5$
 655 N = 10000
 656 GOSUB 130: T1 = T
 665 FOR I = 1 TO N: NEXT I
 677 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-678 ES = EL: BO = 6: GOSUB 220
+678 ES = EL: BO = 6: GOSUB 220: GOSUB 205
 679 L$ = "Empty loop " + STR$(N): GOSUB 194
 695 DIM A(255): N = 10
 702 GOSUB 130: T1 = T
 715 FOR J = 1 TO N: FOR I = 0 TO 255: A(I) = I: NEXT I: NEXT J
 727 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-728 ES = EL: BO = 7: GOSUB 220
+728 ES = EL: BO = 7: GOSUB 220: GOSUB 205
 729 L$ = "Array fill 256 x" + STR$(N): GOSUB 194
 742 GOSUB 130: T1 = T
 745 S = 0
 755 FOR J = 1 TO N: S = 0: FOR I = 0 TO 255: S = S + A(I): NEXT I: NEXT J
 767 GOSUB 130: T2 = T: GOSUB 140: GOSUB 184
-768 ES = EL: BO = 8: GOSUB 220
+768 ES = EL: BO = 8: GOSUB 220: GOSUB 205
 769 L$ = "Array sum 256 x" + STR$(N): GOSUB 194
 785 REM ========== SUMMARY ==========
 791 REM ProDOS cleanup: restore HIMEM (115/116), PR#0, CLOSE (avoids NO BUFFERS on re-RUN)
