@@ -70,6 +70,8 @@ disk: applesoft_drv applesoft/benchml.bin
 	java -jar "$(AC_JAR)" -pro140 $(DISK_IMAGE) $(VOL_NAME)
 	@echo "Adding Applesoft A2SPEED..."
 	cat applesoft/A2SPEED.bas | java -jar "$(AC_JAR)" -bas $(DISK_IMAGE) A2SPEED
+	@echo "Adding README.TXT..."
+	java -jar "$(AC_JAR)" -ptx $(DISK_IMAGE) README.TXT < applesoft/README.TXT
 	@echo "Adding BENCHML (ML benchmark; A2SPEED CALL)..."
 	java -jar "$(AC_JAR)" -p $(DISK_IMAGE) BENCHML BIN $(BENCHML_ADDR) < applesoft/benchml.bin
 	@echo "Adding CLOCKDRV (SPF-compatible clock support)..."
