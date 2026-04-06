@@ -1,4 +1,10 @@
 A2SPEED README
+Developed by Elmars Ositis
+Version: 1.0
+Build Date: 2026-04-02
+Build Number: 4
+GitHub: https://github.com/eositis/a2speed
+
 
 What this disk is for
 ---------------------

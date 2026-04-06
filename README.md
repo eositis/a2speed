@@ -1,4 +1,8 @@
 # a2speed
+
+**Release:** v1.0 · build 4 · 2026-04-02  
+**Author:** Elmars Ositis · **Repository:** https://github.com/eositis/a2speed
+
 Performance Benchmarking for the Apple II computer family
 Use this tool to get a general performance evaluation of your machine, accelerator or emulator.
 

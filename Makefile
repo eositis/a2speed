@@ -1,9 +1,28 @@
 # A2SPEED - Apple II performance test
 # Builds 6502 and 65C02 cc65 binaries; optional MegaFlash FPU benchmark.
+#
+# Prefer Apple Silicon Homebrew cc65 when present so Intel-only /usr/local/bin tools
+# do not shadow arm64 binaries (avoids "Bad CPU type in executable" on arm64 Macs).
 
-CC65   = cl65
-CA65   = ca65
-LD65   = ld65
+ifneq ($(wildcard /opt/homebrew/bin/cl65),)
+CC65 := /opt/homebrew/bin/cl65
+CA65 := /opt/homebrew/bin/ca65
+LD65 := /opt/homebrew/bin/ld65
+else
+CC65 := cl65
+CA65 := ca65
+LD65 := ld65
+endif
+
+# AppleCommander needs Java. On Apple Silicon, Intel Homebrew `java` often fails with
+# "Bad CPU type"; prefer Homebrew arm64 OpenJDK when installed (`brew install openjdk`).
+# Override if needed: make disk JAVA=/path/to/java
+ifneq ($(wildcard /opt/homebrew/opt/openjdk/bin/java),)
+JAVA := /opt/homebrew/opt/openjdk/bin/java
+else
+JAVA := java
+endif
+
 MEGAFLASH ?= ../MegaFlash
 SPF ?= ../spf
 
@@ -32,7 +51,7 @@ BENCHML_ADDR := 0x6000
 DISK_IMAGE := a2speed.po
 VOL_NAME := A2SPEED
 
-.PHONY: all clean disk applesoft_drv
+.PHONY: all clean disk applesoft_drv bump-release
 
 all: cc65/a2speed_6502.po cc65/a2speed_65c02.po applesoft_drv applesoft/benchml.bin
 
@@ -60,22 +79,29 @@ cc65/a2speed_65c02.po: $(addprefix cc65/,$(SRC)) cc65/a2speed.h
 # Set AC_JAR to the path of AppleCommander ac.jar, e.g.:
 #   make disk AC_JAR=/path/to/AppleCommander-ac.jar
 #   make disk AC_JAR=../spf/build/lib/AppleCommander-1.3.5.13-ac.jar
+# Bump build number and refresh metadata (version unchanged). Set SKIP_BUMP=1 to skip when iterating on the disk image.
+bump-release:
+	bash scripts/apply-release-metadata.sh
+
 disk: applesoft_drv applesoft/benchml.bin
 	@if [ -z "$(AC_JAR)" ]; then \
 		echo "Set AC_JAR to the path of AppleCommander ac.jar, e.g.:"; \
 		echo "  make disk AC_JAR=/path/to/AppleCommander-ac.jar"; \
 		exit 1; \
 	fi
+	@if [ -z "$(SKIP_BUMP)" ]; then \
+		bash scripts/apply-release-metadata.sh; \
+	fi
 	@echo "Creating ProDOS image $(DISK_IMAGE)..."
-	java -jar "$(AC_JAR)" -pro140 $(DISK_IMAGE) $(VOL_NAME)
+	$(JAVA) -jar "$(AC_JAR)" -pro140 $(DISK_IMAGE) $(VOL_NAME)
 	@echo "Adding Applesoft A2SPEED..."
-	cat applesoft/A2SPEED.bas | java -jar "$(AC_JAR)" -bas $(DISK_IMAGE) A2SPEED
+	cat applesoft/A2SPEED.bas | $(JAVA) -jar "$(AC_JAR)" -bas $(DISK_IMAGE) A2SPEED
 	@echo "Adding README.TXT..."
-	java -jar "$(AC_JAR)" -ptx $(DISK_IMAGE) README.TXT < applesoft/README.TXT
+	$(JAVA) -jar "$(AC_JAR)" -ptx $(DISK_IMAGE) README.TXT < applesoft/README.TXT
 	@echo "Adding BENCHML (ML benchmark; A2SPEED CALL)..."
-	java -jar "$(AC_JAR)" -p $(DISK_IMAGE) BENCHML BIN $(BENCHML_ADDR) < applesoft/benchml.bin
+	$(JAVA) -jar "$(AC_JAR)" -p $(DISK_IMAGE) BENCHML BIN $(BENCHML_ADDR) < applesoft/benchml.bin
 	@echo "Adding CLOCKDRV (SPF-compatible clock support)..."
-	java -jar "$(AC_JAR)" -p $(DISK_IMAGE) CLOCKDRV BIN $(CLK_ADDR) < applesoft/clockdrv.bin
+	$(JAVA) -jar "$(AC_JAR)" -p $(DISK_IMAGE) CLOCKDRV BIN $(CLK_ADDR) < applesoft/clockdrv.bin
 	@echo "Disk image: $(DISK_IMAGE) (volume /$(VOL_NAME)/)"
 
 clean:
