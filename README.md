@@ -1,6 +1,6 @@
 # a2speed
 
-**Release:** v1.0 · build 4 · 2026-04-02  
+**Release:** v1.0 · build 6 · 2026-04-05  
 **Author:** Elmars Ositis · **Repository:** https://github.com/eositis/a2speed
 
 Performance Benchmarking for the Apple II computer family

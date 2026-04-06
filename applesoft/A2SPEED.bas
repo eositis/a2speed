@@ -7,15 +7,15 @@
 35 PRINT CHR$(4)"PR#3"
 36 REM 80-column display (IIe extended 80-col card, usually slot 3)
 37 HOME
-39 PRINT "A2SPEED - Apple II Benchmarks (Applesoft) v1.0 build 4"
-40 PRINT "=============================================="
+39 PRINT "A2SPEED - Apple II Benchmarks (Applesoft) v1.0 build 6"
+40 PRINT "======================================================"
 41 REM Driver load $7000; CD/RD/CK/CS/TN MUST match applesoft/clockdrv.lst after each ca65/ld65 build
 45 CD = 28672: RD = 28750: TN = 30416: CK = 30159: CS = 29623
 46 CA = 24576: PA = 24579: REM Applesoft: only 1st 2 name chars matter — ML/MLP both "ML"; CA/PA differ
 50 GOTO 400
 55 REM (unused)
 100 REM Timed CPU speed: GOSUB 102. SN=25000 empty FOR/NEXT; REFI=iter/s measured reference machine
-102 SN = 25000: REFI = 481
+102 SN = 25000: REFI = 485
 103 GOSUB 130: T1 = T
 104 FOR I = 1 TO SN: NEXT I
 105 GOSUB 130: T2 = T: GOSUB 140
@@ -64,12 +64,12 @@
 201 RETURN
 205 REM ----- Set stock Apple IIc reference times for current BO -----
 206 IF BO = 1 THEN RA = 33.36: RM = .22: RETURN
-207 IF BO = 2 THEN RA = 37.36: RM = 2.1: RETURN
-208 IF BO = 3 THEN RA = 28.99: RM = 3.9: RETURN
+207 IF BO = 2 THEN RA = 37.36: RM = 2.41: RETURN
+208 IF BO = 3 THEN RA = 28.99: RM = 6.85: RETURN
 209 IF BO = 4 THEN RA = 28.82: RM = .15: RETURN
 210 IF BO = 5 THEN RA = 24.52: RM = .11: RETURN
 211 IF BO = 6 THEN RA = 19.69: RM = .3: RETURN
-212 IF BO = 7 THEN RA = 16.19: RM = 1.68: RETURN
+212 IF BO = 7 THEN RA = 16.19: RM = 1.56: RETURN
 213 IF BO = 8 THEN RA = 25.08: RM = 3.2: RETURN
 214 RA = 0: RM = 0: RETURN
 215 REM ----- ML bench: BO,N,M; POKE PA..; CALL CA; sets EM (EL2 aliases EL in Applesoft)

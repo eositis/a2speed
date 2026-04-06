@@ -1,3 +1,3 @@
 # a2speed — version is edited manually; build number is advanced by scripts/apply-release-metadata.sh (e.g. via `make disk`).
 A2SPEED_VERSION=1.0
-A2SPEED_BUILD=4
+A2SPEED_BUILD=6
