@@ -50,8 +50,11 @@ CLK_ADDR := 0x7000
 BENCHML_ADDR := 0x6000
 DISK_IMAGE := a2speed.po
 VOL_NAME := A2SPEED
+PRODOS_SYS ?= prodos/PRODOS
+BASIC_SYSTEM ?= prodos/BASIC.SYSTEM
+PRODOS_IMAGE ?= prodos/ProDOS_2_4_3.po
 
-.PHONY: all clean disk applesoft_drv bump-release
+.PHONY: all clean disk applesoft_drv bump-release prodos_sysfiles
 
 all: cc65/a2speed_6502.po cc65/a2speed_65c02.po applesoft_drv applesoft/benchml.bin
 
@@ -75,15 +78,41 @@ cc65/a2speed_6502.po: $(addprefix cc65/,$(SRC)) cc65/a2speed.h
 cc65/a2speed_65c02.po: $(addprefix cc65/,$(SRC)) cc65/a2speed.h
 	$(CC65) $(CFLAGS_65C02) -o $@ $(addprefix cc65/,$(SRC)) $(MFLIB)
 
-# Build a ProDOS 140K disk image and add all built files (requires AppleCommander).
+# Build a bootable ProDOS 140K disk image and add all built files (requires AppleCommander).
 # Set AC_JAR to the path of AppleCommander ac.jar, e.g.:
 #   make disk AC_JAR=/path/to/AppleCommander-ac.jar
 #   make disk AC_JAR=../spf/build/lib/AppleCommander-1.3.5.13-ac.jar
+# Provide ProDOS system files (required for boot), e.g.:
+#   make disk PRODOS_SYS=/path/to/PRODOS BASIC_SYSTEM=/path/to/BASIC.SYSTEM
+# Defaults expect these in repo at prodos/PRODOS and prodos/BASIC.SYSTEM.
+# If those files are missing and PRODOS_IMAGE exists, make will auto-extract
+# PRODOS and BASIC.SYSTEM from PRODOS_IMAGE using AppleCommander.
 # Bump build number and refresh metadata (version unchanged). Set SKIP_BUMP=1 to skip when iterating on the disk image.
 bump-release:
 	bash scripts/apply-release-metadata.sh
 
-disk: applesoft_drv applesoft/benchml.bin
+prodos_sysfiles:
+	@if [ -z "$(AC_JAR)" ]; then \
+		echo "Set AC_JAR to the path of AppleCommander ac.jar, e.g.:"; \
+		echo "  make disk AC_JAR=/path/to/AppleCommander-ac.jar"; \
+		exit 1; \
+	fi
+	@if [ -f "$(PRODOS_SYS)" ] && [ -f "$(BASIC_SYSTEM)" ]; then \
+		echo "Using existing system files: $(PRODOS_SYS), $(BASIC_SYSTEM)"; \
+	elif [ -f "$(PRODOS_IMAGE)" ]; then \
+		echo "Extracting PRODOS and BASIC.SYSTEM from $(PRODOS_IMAGE)..."; \
+		mkdir -p "$(dir $(PRODOS_SYS))" "$(dir $(BASIC_SYSTEM))"; \
+		$(JAVA) -jar "$(AC_JAR)" -g "$(PRODOS_IMAGE)" PRODOS "$(PRODOS_SYS)"; \
+		$(JAVA) -jar "$(AC_JAR)" -g "$(PRODOS_IMAGE)" BASIC.SYSTEM "$(BASIC_SYSTEM)"; \
+	else \
+		echo "Missing system files and source image."; \
+		echo "Provide either:"; \
+		echo "  1) PRODOS_SYS and BASIC_SYSTEM files, or"; \
+		echo "  2) PRODOS_IMAGE containing both files (default: $(PRODOS_IMAGE))"; \
+		exit 1; \
+	fi
+
+disk: applesoft_drv applesoft/benchml.bin prodos_sysfiles
 	@if [ -z "$(AC_JAR)" ]; then \
 		echo "Set AC_JAR to the path of AppleCommander ac.jar, e.g.:"; \
 		echo "  make disk AC_JAR=/path/to/AppleCommander-ac.jar"; \
@@ -92,17 +121,39 @@ disk: applesoft_drv applesoft/benchml.bin
 	@if [ -z "$(SKIP_BUMP)" ]; then \
 		bash scripts/apply-release-metadata.sh; \
 	fi
-	@echo "Creating ProDOS image $(DISK_IMAGE)..."
-	$(JAVA) -jar "$(AC_JAR)" -pro140 $(DISK_IMAGE) $(VOL_NAME)
+	@echo "Cloning base ProDOS boot image to $(DISK_IMAGE)..."
+	cp "$(PRODOS_IMAGE)" "$(DISK_IMAGE)"
+	@echo "Renaming volume to $(VOL_NAME)..."
+	$(JAVA) -jar "$(AC_JAR)" -n "$(DISK_IMAGE)" "$(VOL_NAME)"
+	@echo "Removing bundled utilities to free space..."
+	@for f in VIEW.README BITSY.BOOT QUIT.SYSTEM COPYIIPLUS.8.4 BLOCKWARDEN CAT.DOCTOR UNSHRINK CD.EXT FASTDSK FASTDSK.CONF FASTDSK.SYSTEM MAKE.SMALL.P8 MINIBAS MR.FIXIT.Y2K README; do \
+		$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" "$$f" || true; \
+	done
+	@echo "Refreshing PRODOS..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" PRODOS || true
+	$(JAVA) -jar "$(AC_JAR)" -p "$(DISK_IMAGE)" PRODOS SYS < "$(PRODOS_SYS)"
+	@echo "Refreshing BASIC.SYSTEM..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" BASIC.SYSTEM || true
+	$(JAVA) -jar "$(AC_JAR)" -p "$(DISK_IMAGE)" BASIC.SYSTEM SYS < "$(BASIC_SYSTEM)"
+	@echo "Adding STARTUP launcher (ProDOS autostart)..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" STARTUP || true
+	cat applesoft/STARTUP.bas | $(JAVA) -jar "$(AC_JAR)" -bas $(DISK_IMAGE) STARTUP
+	@echo "Adding HELLO launcher (manual fallback)..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" HELLO || true
+	cat applesoft/HELLO.bas | $(JAVA) -jar "$(AC_JAR)" -bas $(DISK_IMAGE) HELLO
 	@echo "Adding Applesoft A2SPEED..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" A2SPEED || true
 	cat applesoft/A2SPEED.bas | $(JAVA) -jar "$(AC_JAR)" -bas $(DISK_IMAGE) A2SPEED
 	@echo "Adding README.TXT..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" README.TXT || true
 	$(JAVA) -jar "$(AC_JAR)" -ptx $(DISK_IMAGE) README.TXT < applesoft/README.TXT
 	@echo "Adding BENCHML (ML benchmark; A2SPEED CALL)..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" BENCHML || true
 	$(JAVA) -jar "$(AC_JAR)" -p $(DISK_IMAGE) BENCHML BIN $(BENCHML_ADDR) < applesoft/benchml.bin
 	@echo "Adding CLOCKDRV (SPF-compatible clock support)..."
+	$(JAVA) -jar "$(AC_JAR)" -d "$(DISK_IMAGE)" CLOCKDRV || true
 	$(JAVA) -jar "$(AC_JAR)" -p $(DISK_IMAGE) CLOCKDRV BIN $(CLK_ADDR) < applesoft/clockdrv.bin
-	@echo "Disk image: $(DISK_IMAGE) (volume /$(VOL_NAME)/)"
+	@echo "Disk image: $(DISK_IMAGE) (volume /$(VOL_NAME)/, bootable with BASIC.SYSTEM)"
 
 clean:
 	rm -f cc65/a2speed_6502.po cc65/a2speed_65c02.po cc65/*.o $(DISK_IMAGE)

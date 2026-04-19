@@ -3,7 +3,7 @@
 ;
 ; Entry points (load at $7000; see clockdrv.lst/map):
 ;   $7000 CLOCK_INIT  - detect/select backend (no self-modifying GetTime vector)
-;   $704E CLOCK_READ  - sample selected backend into TimeNow (see clockdrv.lst; sync A2SPEED.bas)
+;   $7059 CLOCK_READ  - sample selected backend into TimeNow (see clockdrv.lst; sync A2SPEED.bas)
 ;
 ; Detection priority (first match wins):
 ;   1 IIgs   2 ROMX   3 MegaFlash   4 No-Slot Clock
@@ -22,6 +22,17 @@
 
         .segment "CODE"
         .export CLOCK_KIND, TimeNow, ClockSlot
+
+; SPF gettime.asm (DClock): machine ID + monitor I/O + scratch (not in stock SPF for ca65).
+VERSION         = $FBB3
+CROUT           = $FD8E
+COUT1           = $FDED
+PRBYTE          = $FDDA
+
+DCBuf:          .res    8
+DCPreserve:     .res    1
+DCW8Byte:       .res    1
+DCBcdScratch:   .res    1
 
 CLOCK_INIT:
         jsr     SaveZP

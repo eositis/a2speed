@@ -4,13 +4,13 @@
 31 REM Save default HIMEM. Lower it after BLOADs but before string-heavy setup.
 32 HM = PEEK(115) + 256 * PEEK(116)
 34 PRINT CHR$(4)"PR#0"
-35 PRINT CHR$(4)"PR#3"
-36 REM 80-column display (IIe extended 80-col card, usually slot 3)
+35 MB0 = PEEK(64435): IF MB0 = 6 THEN PRINT CHR$(4)"PR#3"
+36 REM Enable 80-col only on IIe/IIc/IIgs-family ROM ID ($FBB3=$06)
 37 HOME
-39 PRINT "A2SPEED - Apple II Benchmarks (Applesoft) v1.0 build 6"
+39 PRINT "A2SPEED - Apple II Benchmarks (Applesoft) v1.0 build 21"
 40 PRINT "======================================================"
 41 REM Driver load $7000; CD/RD/CK/CS/TN MUST match applesoft/clockdrv.lst after each ca65/ld65 build
-45 CD = 28672: RD = 28750: TN = 30416: CK = 30159: CS = 29623
+45 CD = 28683: RD = 28761: TN = 31147: CK = 30890: CS = 30354
 46 CA = 24576: PA = 24579: REM Applesoft: only 1st 2 name chars matter — ML/MLP both "ML"; CA/PA differ
 50 GOTO 400
 55 REM (unused)
@@ -109,21 +109,42 @@
 450 IF K = 4 THEN PRINT "Clock backend: No-Slot Clock - ready"
 455 IF K = 5 THEN PRINT "Clock backend: TimeMaster II slot ";TS;" - ready"
 465 IF K = 0 THEN PRINT "Clock backend: none detected - wall time unavailable"
-468 REM ----- Processor / machine (IIgs from clock K; else ROM ID $FBB3 = 64435) -----
-469 REM MHz: IIgs 65816 ~2.8 MHz; NTSC 6502/65C02 ~1.02 MHz (14.31818/14); unknown ~1.0
-470 IF K = 1 THEN PRINT "Processor: 65816 (Apple IIgs) ~2.8 MHz est."
-471 IF K = 1 THEN GOTO 490
-472 MB = PEEK(64435)
-473 MACH$ = "Apple II family"
-474 CPU$ = "6502"
-475 MH$ = "~1.0 MHz est."
-476 IF MB = 6 THEN MACH$ = "Apple IIe": CPU$ = "65C02": MH$ = "~1.02 MHz est."
-477 IF MB = 234 THEN MACH$ = "Apple II Plus": MH$ = "~1.02 MHz est."
-478 IF MB = 0 THEN MACH$ = "Apple IIc (or IIc+)": CPU$ = "65C02": MH$ = "~1.02 MHz est."
+468 REM ----- Processor / machine identify (runtime CPU probe + ROM model bytes) -----
+469 REM CPU probe uses BRA ($80): 65C02/65816 take branch, 6502 falls through.
+470 MB = PEEK(64435): RB = PEEK(64448): VC = PEEK(64447)
+471 MACH$ = "Apple II family": CPU$ = "6502": MH$ = "~1.0 MHz est."
+472 IF MB = 56 THEN MACH$ = "Apple II": MH$ = "~1.02 MHz est."
+473 IF MB = 234 THEN MACH$ = "Apple II Plus": MH$ = "~1.02 MHz est."
+474 IF MB = 6 AND RB = 0 THEN MACH$ = "Apple IIc"
+475 IF MB = 6 AND RB = 0 AND VC = 5 THEN MACH$ = "Apple IIc+"
+476 IF MB = 6 AND RB = 224 THEN MACH$ = "Apple IIe (Enhanced ROM)"
+477 IF MB = 6 AND RB = 234 THEN MACH$ = "Apple IIe"
+478 IF MB = 6 AND (RB = 0 OR RB = 224 OR RB = 234) THEN MH$ = "~1.02 MHz est."
+479 AD = 768
+480 FOR I = 0 TO 17: READ B: POKE AD + I, B: NEXT I
+481 DATA 24,128,1,56,144,6,169,0,141,20,3,96,169,1,141,20,3,96
+482 POKE 788, 0: CALL AD: CP = PEEK(788)
+483 IF CP <> 0 THEN CPU$ = "65C02"
+484 IF K = 1 THEN GOSUB 7600
 485 PRINT "Processor: ";CPU$;" (";MACH$;") ";MH$
-490 IF K = 0 THEN PRINT "Timed speed: N/A (no wall clock)": GOTO 500
-491 GOSUB 102
-492 GOTO 500
+486 IF K = 0 THEN PRINT "Timed speed: N/A (no wall clock)": GOTO 505
+488 GOSUB 102
+489 REM fall through to math section
+4860 REM (unused)
+4861 REM (unused)
+4862 REM (unused)
+4863 REM (unused)
+4864 REM (unused)
+4865 REM (unused)
+4866 REM (unused)
+4867 REM (unused)
+4868 REM (unused)
+4869 REM (unused)
+4870 REM (unused)
+4871 REM (unused)
+490 REM (unused)
+491 REM (unused)
+492 REM (unused)
 500 REM ========== MATH BENCHMARKS ==========
 505 PRINT : PRINT "--- MATH ---"
 508 REM Same widths as GOSUB 194: 32 + 12 + 12 + 8 + 8
@@ -183,5 +204,17 @@
 792 POKE 115, HM - INT(HM / 256) * 256
 793 POKE 116, INT(HM / 256)
 794 PRINT CHR$(4)"PR#0"
-795 PRINT CHR$(4)"CLOSE"
-800 END
+795 PRINT CHR$(4)"CLOSE": END
+7600 REM ----- IIgs path: set CPU then probe ROM version via $FE1F -----
+7601 CPU$ = "65C816": MACH$ = "Apple IIgs": MH$ = "~2.8 MHz est."
+7602 FOR I = 0 TO 11: READ B: POKE AD + I, B: NEXT I
+7603 DATA 32,31,254,141,20,3,142,21,3,140,22,3
+7604 POKE AD + 12, 96
+7605 CALL AD: RV = 0
+7606 IF PEEK(788) = 1 OR PEEK(788) = 3 THEN RV = PEEK(788)
+7607 IF PEEK(789) = 1 OR PEEK(789) = 3 THEN RV = PEEK(789)
+7608 IF PEEK(790) = 1 OR PEEK(790) = 3 THEN RV = PEEK(790)
+7609 IF RV = 1 THEN MACH$ = "Apple IIgs ROM 01"
+7610 IF RV = 3 THEN MACH$ = "Apple IIgs ROM 03"
+7611 RETURN
+799 REM (unused)

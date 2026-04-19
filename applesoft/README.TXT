@@ -1,8 +1,8 @@
 A2SPEED README
 Developed by Elmars Ositis
 Version: 1.0
-Build Date: 2026-04-05
-Build Number: 6
+Build Date: 2026-04-19
+Build Number: 21
 GitHub: https://github.com/eositis/a2speed
 
 
@@ -122,6 +122,17 @@ The clock driver fills a 4-byte time structure:
 
 MegaFlash and No-Slot Clock support hundredths. A2SPEED uses those
 hundredths when available.
+
+Emulators (e.g. Ample / MAME): Wall-clock timings assume the RTC advances
+with emulated machine time. If you run with speed not throttled to real
+time, or the emulator ties the No-Slot Clock to host wall time while the
+CPU runs faster, reported seconds can look wrong. Prefer normal
+(real-time) speed when you want true wall-clock seconds.
+
+A2SPEED can auto-switch to VBL jiffy timing ($4E-$50, NTSC JP=60.096) if a
+short calibration detects RTC vs jiffy mismatch; then it prints
+"Timing: VBL jiffies (RTC skew)" and uses emulated-time seconds for
+benchmarks. See doc/CLOCKDRV.md.
 
 
 How timing is calculated

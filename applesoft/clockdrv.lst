@@ -7,7 +7,7 @@ Current file: applesoft/clockdrv.s
 000000r 1               ;
 000000r 1               ; Entry points (load at $7000; see clockdrv.lst/map):
 000000r 1               ;   $7000 CLOCK_INIT  - detect/select backend (no self-modifying GetTime vector)
-000000r 1               ;   $704E CLOCK_READ  - sample selected backend into TimeNow (see clockdrv.lst; sync A2SPEED.bas)
+000000r 1               ;   $7059 CLOCK_READ  - sample selected backend into TimeNow (see clockdrv.lst; sync A2SPEED.bas)
 000000r 1               ;
 000000r 1               ; Detection priority (first match wins):
 000000r 1               ;   1 IIgs   2 ROMX   3 MegaFlash   4 No-Slot Clock
@@ -27,855 +27,1243 @@ Current file: applesoft/clockdrv.s
 000000r 1                       .segment "CODE"
 000000r 1                       .export CLOCK_KIND, TimeNow, ClockSlot
 000000r 1               
-000000r 1               CLOCK_INIT:
-000000r 1  20 rr rr             jsr     SaveZP
-000003r 1  A9 00                lda     #KIND_NONE
-000005r 1  8D rr rr             sta     CLOCK_KIND
-000008r 1               
-000008r 1                       ; IIgs
-000008r 1  38                   sec
-000009r 1  20 1F FE             jsr     $FE1F
-00000Cr 1  B0 08                bcs     @chk_romx
-00000Er 1  A9 01                lda     #KIND_GS
+000000r 1               ; SPF gettime.asm (DClock): machine ID + monitor I/O + scratch (not in stock SPF for ca65).
+000000r 1               VERSION         = $FBB3
+000000r 1               CROUT           = $FD8E
+000000r 1               COUT1           = $FDED
+000000r 1               PRBYTE          = $FDDA
+000000r 1               
+000000r 1  xx xx xx xx  DCBuf:          .res    8
+000004r 1  xx xx xx xx  
+000008r 1  xx           DCPreserve:     .res    1
+000009r 1  xx           DCW8Byte:       .res    1
+00000Ar 1  xx           DCBcdScratch:   .res    1
+00000Br 1               
+00000Br 1               CLOCK_INIT:
+00000Br 1  20 rr rr             jsr     SaveZP
+00000Er 1  A9 00                lda     #KIND_NONE
 000010r 1  8D rr rr             sta     CLOCK_KIND
-000013r 1  4C rr rr             jmp     @done_init
-000016r 1               
-000016r 1               @chk_romx:
-000016r 1  20 rr rr             jsr     CheckForROMX
-000019r 1  B0 08                bcs     @chk_mega
-00001Br 1  A9 02                lda     #KIND_ROMX
-00001Dr 1  8D rr rr             sta     CLOCK_KIND
-000020r 1  4C rr rr             jmp     @done_init
-000023r 1               
-000023r 1               @chk_mega:
-000023r 1  20 rr rr             jsr     CheckForMegaFlash
-000026r 1  B0 08                bcs     @chk_nsc
-000028r 1  A9 03                lda     #KIND_MEGA
-00002Ar 1  8D rr rr             sta     CLOCK_KIND
-00002Dr 1  4C rr rr             jmp     @done_init
-000030r 1               
-000030r 1               @chk_nsc:
-000030r 1  20 rr rr             jsr     CheckForNoSlotClock
-000033r 1  B0 08                bcs     @chk_tm
-000035r 1  A9 04                lda     #KIND_NSC
-000037r 1  8D rr rr             sta     CLOCK_KIND
-00003Ar 1  4C rr rr             jmp     @done_init
-00003Dr 1               
-00003Dr 1               @chk_tm:
-00003Dr 1  20 rr rr             jsr     CheckForTimeMaster
-000040r 1  B0 08                bcs     @done_init
-000042r 1  A9 05                lda     #KIND_TM
-000044r 1  8D rr rr             sta     CLOCK_KIND
-000047r 1  4C rr rr             jmp     @done_init
-00004Ar 1               
-00004Ar 1               @done_init:
-00004Ar 1  20 rr rr             jsr     RestoreZP
-00004Dr 1  60                   rts
-00004Er 1               
-00004Er 1               CLOCK_READ:
-00004Er 1  20 rr rr             jsr     SaveZP
-000051r 1  AD rr rr             lda     CLOCK_KIND
-000054r 1  C9 01                cmp     #KIND_GS
-000056r 1  D0 06                bne     @r2
-000058r 1  20 rr rr             jsr     GetTimeGS
-00005Br 1  4C rr rr             jmp     @done_read
-00005Er 1               @r2:
-00005Er 1  C9 02                cmp     #KIND_ROMX
-000060r 1  D0 06                bne     @r3
-000062r 1  20 rr rr             jsr     GetTimeROMX
-000065r 1  4C rr rr             jmp     @done_read
-000068r 1               @r3:
-000068r 1  C9 03                cmp     #KIND_MEGA
-00006Ar 1  D0 06                bne     @r4
-00006Cr 1  20 rr rr             jsr     GetTimeMegaFlashA2
-00006Fr 1  4C rr rr             jmp     @done_read
-000072r 1               @r4:
-000072r 1  C9 04                cmp     #KIND_NSC
-000074r 1  D0 06                bne     @r5
-000076r 1  20 rr rr             jsr     GetTimeNSC
-000079r 1  4C rr rr             jmp     @done_read
-00007Cr 1               @r5:
-00007Cr 1  C9 05                cmp     #KIND_TM
-00007Er 1  D0 06                bne     @done_read
-000080r 1  20 rr rr             jsr     GetTimeTimeMaster
-000083r 1  4C rr rr             jmp     @done_read
-000086r 1               
-000086r 1               @done_read:
-000086r 1  20 rr rr             jsr     RestoreZP
-000089r 1  60                   rts
-00008Ar 1               
-00008Ar 1               GetTimeTimeMaster:
-00008Ar 1  4C rr rr             jmp     GetTimeThunderclock
-00008Dr 1               
-00008Dr 1               SaveZP:
-00008Dr 1  A2 00                ldx     #$00
-00008Fr 1               @sloop:
-00008Fr 1  B5 00                lda     $00,x
-000091r 1  9D rr rr             sta     ZPSAVE,x
-000094r 1  E8                   inx
-000095r 1  D0 F8                bne     @sloop
-000097r 1  60                   rts
+000013r 1               
+000013r 1                       ; IIgs
+000013r 1  38                   sec
+000014r 1  20 1F FE             jsr     $FE1F
+000017r 1  B0 08                bcs     @chk_romx
+000019r 1  A9 01                lda     #KIND_GS
+00001Br 1  8D rr rr             sta     CLOCK_KIND
+00001Er 1  4C rr rr             jmp     @done_init
+000021r 1               
+000021r 1               @chk_romx:
+000021r 1  20 rr rr             jsr     CheckForROMX
+000024r 1  B0 08                bcs     @chk_mega
+000026r 1  A9 02                lda     #KIND_ROMX
+000028r 1  8D rr rr             sta     CLOCK_KIND
+00002Br 1  4C rr rr             jmp     @done_init
+00002Er 1               
+00002Er 1               @chk_mega:
+00002Er 1  20 rr rr             jsr     CheckForMegaFlash
+000031r 1  B0 08                bcs     @chk_nsc
+000033r 1  A9 03                lda     #KIND_MEGA
+000035r 1  8D rr rr             sta     CLOCK_KIND
+000038r 1  4C rr rr             jmp     @done_init
+00003Br 1               
+00003Br 1               @chk_nsc:
+00003Br 1  20 rr rr             jsr     CheckForNoSlotClock
+00003Er 1  B0 08                bcs     @chk_tm
+000040r 1  A9 04                lda     #KIND_NSC
+000042r 1  8D rr rr             sta     CLOCK_KIND
+000045r 1  4C rr rr             jmp     @done_init
+000048r 1               
+000048r 1               @chk_tm:
+000048r 1  20 rr rr             jsr     CheckForTimeMaster
+00004Br 1  B0 08                bcs     @done_init
+00004Dr 1  A9 05                lda     #KIND_TM
+00004Fr 1  8D rr rr             sta     CLOCK_KIND
+000052r 1  4C rr rr             jmp     @done_init
+000055r 1               
+000055r 1               @done_init:
+000055r 1  20 rr rr             jsr     RestoreZP
+000058r 1  60                   rts
+000059r 1               
+000059r 1               CLOCK_READ:
+000059r 1  20 rr rr             jsr     SaveZP
+00005Cr 1  AD rr rr             lda     CLOCK_KIND
+00005Fr 1  C9 01                cmp     #KIND_GS
+000061r 1  D0 06                bne     @r2
+000063r 1  20 rr rr             jsr     GetTimeGS
+000066r 1  4C rr rr             jmp     @done_read
+000069r 1               @r2:
+000069r 1  C9 02                cmp     #KIND_ROMX
+00006Br 1  D0 06                bne     @r3
+00006Dr 1  20 rr rr             jsr     GetTimeROMX
+000070r 1  4C rr rr             jmp     @done_read
+000073r 1               @r3:
+000073r 1  C9 03                cmp     #KIND_MEGA
+000075r 1  D0 06                bne     @r4
+000077r 1  20 rr rr             jsr     GetTimeMegaFlashA2
+00007Ar 1  4C rr rr             jmp     @done_read
+00007Dr 1               @r4:
+00007Dr 1  C9 04                cmp     #KIND_NSC
+00007Fr 1  D0 06                bne     @r5
+000081r 1  20 rr rr             jsr     GetTimeNSC
+000084r 1  4C rr rr             jmp     @done_read
+000087r 1               @r5:
+000087r 1  C9 05                cmp     #KIND_TM
+000089r 1  D0 06                bne     @done_read
+00008Br 1  20 rr rr             jsr     GetTimeTimeMaster
+00008Er 1  4C rr rr             jmp     @done_read
+000091r 1               
+000091r 1               @done_read:
+000091r 1  20 rr rr             jsr     RestoreZP
+000094r 1  60                   rts
+000095r 1               
+000095r 1               GetTimeTimeMaster:
+000095r 1  4C rr rr             jmp     GetTimeThunderclock
 000098r 1               
-000098r 1               RestoreZP:
+000098r 1               SaveZP:
 000098r 1  A2 00                ldx     #$00
-00009Ar 1               @rloop:
-00009Ar 1  BD rr rr             lda     ZPSAVE,x
-00009Dr 1  95 00                sta     $00,x
+00009Ar 1               @sloop:
+00009Ar 1  B5 00                lda     $00,x
+00009Cr 1  9D rr rr             sta     ZPSAVE,x
 00009Fr 1  E8                   inx
-0000A0r 1  D0 F8                bne     @rloop
+0000A0r 1  D0 F8                bne     @sloop
 0000A2r 1  60                   rts
 0000A3r 1               
-0000A3r 1               ; Applied Engineering TimeMaster II H.O. — ROM id at Cn00-01 ($4D $D9), not Thunder $08 $78 $28.
-0000A3r 1               CheckForTimeMaster:
-0000A3r 1  38                   sec
-0000A4r 1  A2 07                ldx     #$07
-0000A6r 1               @tmloop:
-0000A6r 1  18                   clc
-0000A7r 1  8A                   txa
-0000A8r 1  69 C0                adc     #$c0
-0000AAr 1  85 08                sta     UTILPTR+1
-0000ACr 1  A9 00                lda     #$00
-0000AEr 1  85 07                sta     UTILPTR
-0000B0r 1  A0 00                ldy     #$00
-0000B2r 1  B1 07                lda     (UTILPTR),y
-0000B4r 1  C9 4D                cmp     #$4D
-0000B6r 1  D0 0C                bne     @tmnext
-0000B8r 1  C8                   iny
-0000B9r 1  B1 07                lda     (UTILPTR),y
-0000BBr 1  C9 D9                cmp     #$D9
-0000BDr 1  D0 05                bne     @tmnext
-0000BFr 1  8E rr rr             stx     ClockSlot
-0000C2r 1  18                   clc
-0000C3r 1  60                   rts
-0000C4r 1               @tmnext:
-0000C4r 1  CA                   dex
-0000C5r 1  D0 DF                bne     @tmloop
-0000C7r 1  38                   sec
-0000C8r 1  60                   rts
-0000C9r 1               
-0000C9r 1                       .include "gettime.asm"
-0000C9r 2               ;
-0000C9r 2               ; SPF - Stress ProDOS Filesystem
-0000C9r 2               ; Copyright (C) 2013 - 2025 by David Schmidt
-0000C9r 2               ; 1110325+david-schmidt@users.noreply.github.com
-0000C9r 2               ;
-0000C9r 2               ; This program is free software; you can redistribute it and/or modify it
-0000C9r 2               ; under the terms of the GNU General Public License as published by the
-0000C9r 2               ; Free Software Foundation; either version 2 of the License, or (at your
-0000C9r 2               ; option) any later version.
-0000C9r 2               ;
-0000C9r 2               ; This program is distributed in the hope that it will be useful, but
-0000C9r 2               ; WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-0000C9r 2               ; or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
-0000C9r 2               ; for more details.
-0000C9r 2               ;
-0000C9r 2               ; You should have received a copy of the GNU General Public License along
-0000C9r 2               ; with this program; if not, write to the Free Software Foundation, Inc.,
-0000C9r 2               ; 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-0000C9r 2               ;
-0000C9r 2               
-0000C9r 2               InitTime:
-0000C9r 2  38           	sec
-0000CAr 2  20 1F FE     	jsr $FE1F	; CheckForGS
-0000CDr 2  90 13        	bcc FoundClockGS
-0000CFr 2  20 rr rr     	jsr CheckForNoSlotClock
-0000D2r 2  90 19        	bcc FoundClockNoSlot
-0000D4r 2  20 rr rr     	jsr CheckForROMX
-0000D7r 2  90 1F        	bcc FoundClockROMX
-0000D9r 2  20 rr rr     	jsr CheckForMegaFlash
-0000DCr 2  90 25        	bcc FoundClockMegaFlash
-0000DEr 2  20 rr rr     	jsr CheckForSlottedClocks
-0000E1r 2  60           	rts
-0000E2r 2               
-0000E2r 2               FoundClockGS:
-0000E2r 2               ;---------------------------------------------------------
-0000E2r 2               ; Patch the entry point of GetTime to the IIgs version
-0000E2r 2               ;---------------------------------------------------------
-0000E2r 2  A9 rr        	lda #<GetTimeGS
-0000E4r 2  8D rr rr     	sta GetTime+1
-0000E7r 2  A9 rr        	lda #>GetTimeGS
-0000E9r 2  8D rr rr     	sta GetTime+2
-0000ECr 2  60           	rts
-0000EDr 2               
-0000EDr 2               FoundClockNoSlot:
-0000EDr 2               ;---------------------------------------------------------
-0000EDr 2               ; Patch the entry point of GetTime to the NoSlotClock version
-0000EDr 2               ;---------------------------------------------------------
-0000EDr 2  A9 rr        	lda #<GetTimeNSC
-0000EFr 2  8D rr rr     	sta GetTime+1
-0000F2r 2  A9 rr        	lda #>GetTimeNSC
-0000F4r 2  8D rr rr     	sta GetTime+2
-0000F7r 2  60           	rts
-0000F8r 2               
-0000F8r 2               FoundClockROMX:
-0000F8r 2               ;---------------------------------------------------------
-0000F8r 2               ; Patch the entry point of GetTime to the ROMX version
-0000F8r 2               ;---------------------------------------------------------
-0000F8r 2  A9 rr        	lda #<GetTimeROMX
-0000FAr 2  8D rr rr     	sta GetTime+1
-0000FDr 2  A9 rr        	lda #>GetTimeROMX
-0000FFr 2  8D rr rr     	sta GetTime+2
-000102r 2  60           	rts
-000103r 2               
-000103r 2               FoundClockMegaFlash:
-000103r 2               ;---------------------------------------------------------
-000103r 2               ; Patch the entry point of GetTime to the MegaFlash version
-000103r 2               ;---------------------------------------------------------
-000103r 2  A9 rr        	lda #<GetTimeMegaFlash
-000105r 2  8D rr rr     	sta GetTime+1
-000108r 2  A9 rr        	lda #>GetTimeMegaFlash
-00010Ar 2  8D rr rr     	sta GetTime+2
-00010Dr 2  60           	rts
-00010Er 2               
-00010Er 2               GetTime:
-00010Er 2  20 00 00     	jsr $0000
-000111r 2  60           	rts
-000112r 2               
-000112r 2               
-000112r 2               GetTimeGS:
-000112r 2               ;---------------------------------------------------------
-000112r 2               ; Get the current time on the GS
-000112r 2               ;---------------------------------------------------------
-000112r 2               .P816
-000112r 2  18           	clc
-000113r 2  FB           	.byte $FB	; xce
-000114r 2  C2 30        	rep #$30
-000116r 2               .A16
-000116r 2               .I16
-000116r 2  48           	pha
-000117r 2  48           	pha
-000118r 2  48           	pha
-000119r 2  48           	pha
-00011Ar 2  A2 03 0D     	ldx #$0D03
-00011Dr 2  22 00 00 E1  	jsl $E10000
-000121r 2  E2 30        	sep #$30
-000123r 2               .I8
-000123r 2  A2 07        	ldx #7
-000125r 2               GTGSLoop:
-000125r 2  68           	pla
-000126r 2  9D rr rr     	sta GSTime,X
-000129r 2  CA           	dex
-00012Ar 2  10 F9        	bpl GTGSLoop
-00012Cr 2  38           	sec
-00012Dr 2  FB           	.byte $FB	; xce
-00012Er 2               .A8
-00012Er 2  AD rr rr     	lda GSTime+5	; Hours
-000131r 2  8D rr rr     	sta TimeNow
-000134r 2  AD rr rr     	lda GSTime+6	; Minutes
-000137r 2  8D rr rr     	sta TimeNow+1
-00013Ar 2  AD rr rr     	lda GSTime+7	; Seconds
-00013Dr 2  8D rr rr     	sta TimeNow+2
-000140r 2  A9 00        	lda #$00	; Hundredths (not available on GS)
-000142r 2  8D rr rr     	sta TimeNow+3
-000145r 2  60           	rts
-000146r 2               .P02
-000146r 2               
-000146r 2               GSTime:
-000146r 2  xx xx xx xx  	.res 8
-00014Ar 2  xx xx xx xx  
-00014Er 2               
-00014Er 2               ;---------------------------------------------------------
-00014Er 2               ; BASIC test program for the GS time-getting algorithm
-00014Er 2               ;---------------------------------------------------------
-00014Er 2               
-00014Er 2               ;10 X = 768:Z = 803
-00014Er 2               ;20 READ Y: IF Y >  - 1 THEN  POKE X,Y:X = X + 1: GOTO 20
-00014Er 2               ;30 DATA 56,32,31,254,144,1,96,251,194,48,72,72,72,72
-00014Er 2               ;40 DATA 162,3,13,34,0,0,225,226,48,162,7,104,157,35,3
-00014Er 2               ;50 DATA 202,16,249,56,251,96,-1
-00014Er 2               ;60 CALL 768
-00014Er 2               ;70 WD =  PEEK (Z): REM Weekday (1=Sun...7=Sat)
-00014Er 2               ;80 MO =  PEEK (Z+2): REM Month (0=Jan...11=Dec)
-00014Er 2               ;90 DA =  PEEK (Z+3): REM Day (0...30)
-00014Er 2               ;100 YR =  PEEK (Z+4): REM Year-1900
-00014Er 2               ;110 HR =  PEEK (Z+5): REM Hour (0...23)
-00014Er 2               ;120 MN =  PEEK (Z+6): REM Minute (0...59)
-00014Er 2               ;130 SC =  PEEK (Z+7): REM Second (0...59)
-00014Er 2               ;140 PRINT "Hour: ";HR;" Minute: ";MN;" Second: ";SC
-00014Er 2               
-00014Er 2               GetTimeNSC:
-00014Er 2  20 rr rr     	jsr NSCEntry
-000151r 2  AD rr rr     	lda L0307	; Hours
-000154r 2  8D rr rr     	sta TimeNow
-000157r 2  AD rr rr     	lda L0308	; Minutes
-00015Ar 2  8D rr rr     	sta TimeNow+1
-00015Dr 2  AD rr rr     	lda L0309	; Seconds
-000160r 2  8D rr rr     	sta TimeNow+2
-000163r 2  AD rr rr     	lda L030A	; Hundredths
-000166r 2  8D rr rr     	sta TimeNow+3
-000169r 2  60           	rts
-00016Ar 2               
-00016Ar 2               CheckForROMX:
-00016Ar 2               	; Return with carry clear means we found one
-00016Ar 2  2C E0 C0     	bit $C0E0	; Temporarily disable Zip Chip
-00016Dr 2  2C CA FA     	bit $FACA	; Select ROMX Bank 0
-000170r 2  2C CA FA     	bit $FACA
-000173r 2  2C FE FA     	bit $FAFE
-000176r 2  AD FE DF     	lda $DFFE	; Will return $4A if ROMX present
-000179r 2  C9 4A        	cmp #$4A	;  or $AA if ROMX in Recovery mode
-00017Br 2  D0 0B        	bne NoROMX
-00017Dr 2  AD FF DF     	lda $DFFF	; Will return $CD if ROMX present
-000180r 2  C9 CD        	cmp #$CD	;  or $55 if ROMX in Recovery mode
-000182r 2  D0 04        	bne NoROMX
-000184r 2               	; Here we know we have a ROMX
-000184r 2  18           	clc
-000185r 2  4C rr rr     	jmp DoneROMX
-000188r 2               	NoROMX:
-000188r 2  38           	sec
-000189r 2               	DoneROMX:
-000189r 2  2C 51 F8     	bit $F851	; Return to Main Bank (MUST DO, EVEN IF ROMX NOT FOUND!)
-00018Cr 2  60           	rts
-00018Dr 2               
-00018Dr 2               GetTimeROMX:
-00018Dr 2  2C E0 C0     	bit $C0E0	; Temporarily disable Zip Chip
-000190r 2  2C CA FA     	bit $FACA
-000193r 2  2C CA FA     	bit $FACA
-000196r 2  2C FE FA     	bit $FAFE	; activate bank 0
-000199r 2  20 F0 D8     	jsr $D8F0	; read clock through firmware entry point
-00019Cr 2  2C 51 F8     	bit $F851	; exit bank 0
-00019Fr 2               
-00019Fr 2  AD B2 02     	lda $2B2	; Hours
-0001A2r 2  8D rr rr     	sta TimeNow
-0001A5r 2  AD B1 02     	lda $2B1	; Minutes
-0001A8r 2  8D rr rr     	sta TimeNow+1
-0001ABr 2  AD B0 02     	lda $2B0	; Seconds + $80 ST Oscillator enabled bit
-0001AEr 2  29 7F        	and #$7f	; Seconds
-0001B0r 2  8D rr rr     	sta TimeNow+2
-0001B3r 2  A9 00        	lda #$00	; Hundredths (not available on ROMX)
-0001B5r 2  8D rr rr     	sta TimeNow+3
-0001B8r 2  60           	rts
-0001B9r 2               
-0001B9r 2               ;---------------------------------------------------------
-0001B9r 2               ; MegaFlash clock support (Apple IIc/IIc+ with MegaFlash)
-0001B9r 2               ; https://github.com/ThomasFok/MegaFlash
-0001B9r 2               ;
-0001B9r 2               ; Design notes: doc/MegaFlash_Clock.md
-0001B9r 2               ;
-0001B9r 2               ; Activation is handled in MegaFlash ROM; we only check presence and read time.
-0001B9r 2               ; Detection: CMD_GETDEVINFO returns signature $88,$74 in paramreg.
-0001B9r 2               ;
-0001B9r 2               ; GetTime: CMD_GETPRODOS25TIME returns 6 bytes. Time word (bytes 2-3)
-0001B9r 2               ; packs [mday:5][hour:5][min:6]; we extract hour=(time>>6)&$1F,
-0001B9r 2               ; min=time&$3F. Byte 1 = seconds.
-0001B9r 2               ;---------------------------------------------------------
-0001B9r 2               MF_CMDSTATUS	= $C0C0
-0001B9r 2               MF_PARAM	= $C0C1
-0001B9r 2               MF_CMD_GETDEVINFO	= $10
-0001B9r 2               MF_CMD_GETPRODOS25TIME	= $18
-0001B9r 2               MF_SIGNATURE1	= $88
-0001B9r 2               MF_SIGNATURE2	= $74
-0001B9r 2               
-0001B9r 2               CheckForMegaFlash:
-0001B9r 2               	; ROM activates MegaFlash if present; just check for presence
-0001B9r 2               	; Send GETDEVINFO command
-0001B9r 2  A9 10        	lda #MF_CMD_GETDEVINFO
-0001BBr 2  8D C0 C0     	sta MF_CMDSTATUS
-0001BEr 2               	; Wait for busy to clear (with timeout)
-0001BEr 2  A2 64        	ldx #100
-0001C0r 2  2C C0 C0     :	bit MF_CMDSTATUS
-0001C3r 2  10 05        	bpl :+
-0001C5r 2  CA           	dex
-0001C6r 2  D0 F8        	bne :-
-0001C8r 2               	; Timeout - MegaFlash not present
-0001C8r 2  38           	sec
-0001C9r 2  60           	rts
-0001CAr 2               :	; Check for error (bit 6)
-0001CAr 2  70 10        	bvs CheckMegaFlashFail
-0001CCr 2               	; Verify signature bytes
-0001CCr 2  AD C1 C0     	lda MF_PARAM
-0001CFr 2  C9 88        	cmp #MF_SIGNATURE1
-0001D1r 2  D0 09        	bne CheckMegaFlashFail
-0001D3r 2  AD C1 C0     	lda MF_PARAM
-0001D6r 2  C9 74        	cmp #MF_SIGNATURE2
-0001D8r 2  D0 02        	bne CheckMegaFlashFail
-0001DAr 2               	; MegaFlash found
-0001DAr 2  18           	clc
-0001DBr 2  60           	rts
-0001DCr 2               CheckMegaFlashFail:
-0001DCr 2  38           	sec
-0001DDr 2  60           	rts
-0001DEr 2               
-0001DEr 2               GetTimeMegaFlash:
-0001DEr 2               	; Request ProDOS 2.5 format time (includes seconds)
-0001DEr 2  A9 18        	lda #MF_CMD_GETPRODOS25TIME
-0001E0r 2  8D C0 C0     	sta MF_CMDSTATUS
-0001E3r 2               	; Wait for completion
-0001E3r 2  2C C0 C0     :	bit MF_CMDSTATUS
-0001E6r 2  30 FB        	bmi :-
-0001E8r 2  70 47        	bvs GetTimeMFDone	; Error - skip update
-0001EAr 2               	; Read 6 bytes: [0]=4ms units, [1]=sec, [2-3]=time word, [4-5]=date
-0001EAr 2  AD C1 C0     	lda MF_PARAM		; t4ms - discard
-0001EDr 2  AD C1 C0     	lda MF_PARAM		; seconds
-0001F0r 2  8D rr rr     	sta MFTime+1
-0001F3r 2  AD C1 C0     	lda MF_PARAM		; time lo
-0001F6r 2  8D rr rr     	sta MFTime+2
-0001F9r 2  AD C1 C0     	lda MF_PARAM		; time hi
-0001FCr 2  8D rr rr     	sta MFTime+3
-0001FFr 2  AD C1 C0     	lda MF_PARAM		; date lo - discard
-000202r 2  AD C1 C0     	lda MF_PARAM		; date hi - discard
-000205r 2               	; Extract: min = time & $3F, hour = (time >> 6) & $1F
-000205r 2  AD rr rr     	lda MFTime+2
-000208r 2  29 3F        	and #$3F
-00020Ar 2  8D rr rr     	sta TimeNow+1		; Minutes
-00020Dr 2  AD rr rr     	lda MFTime+2
-000210r 2  4A           	lsr a
-000211r 2  4A           	lsr a
-000212r 2  4A           	lsr a
-000213r 2  4A           	lsr a
-000214r 2  4A           	lsr a
-000215r 2  4A           	lsr a
-000216r 2  8D rr rr     	sta MFTime+0		; temp: hour low 2 bits
-000219r 2  AD rr rr     	lda MFTime+3
-00021Cr 2  29 07        	and #$07			; hour bits from high byte
-00021Er 2  0A           	asl a
-00021Fr 2  0A           	asl a
-000220r 2  0D rr rr     	ora MFTime+0
-000223r 2  8D rr rr     	sta TimeNow		; Hours
-000226r 2  AD rr rr     	lda MFTime+1
-000229r 2  8D rr rr     	sta TimeNow+2		; Seconds
-00022Cr 2  A9 00        	lda #$00
-00022Er 2  8D rr rr     	sta TimeNow+3		; Hundredths (MegaFlash has 4ms, we use 0 for simplicity)
-000231r 2               GetTimeMFDone:
-000231r 2  60           	rts
-000232r 2               
-000232r 2  xx xx xx xx  MFTime:	.res 4		; Temp: [0]=hour bits, [1]=sec, [2]=time_lo, [3]=time_hi
-000236r 2               
-000236r 2               CheckForNoSlotClock:
-000236r 2  20 rr rr     	jsr PrepNoSlotClock	; Prepare the driver
-000239r 2  20 rr rr     	jsr NSCEntry		; Call it to get the time
-00023Cr 2  AD rr rr     	lda L0304		; Signature will be non-zero if NSC exists
-00023Fr 2  18           	clc
-000240r 2  D0 01        	bne :+
-000242r 2  38           	sec
-000243r 2  60           :	rts
-000244r 2               
-000244r 2               PrepNoSlotClock:
-000244r 2               ;---------------------------------------------------------
-000244r 2               ; Look for a NoSlotClock
-000244r 2               ;---------------------------------------------------------
-000244r 2               
-000244r 2               L3A3A	= $3A3A
-000244r 2               LDA9A	= $DA9A
-000244r 2               LDD6C	= $DD6C
-000244r 2               LDEBE	= $DEBE
-000244r 2               LDFE3	= $DFE3
-000244r 2               LE3E9	= $E3E9
-000244r 2               
-000244r 2  A9 00        L0260:	lda #$00
-000246r 2  8D rr rr     	sta L02DE
-000249r 2  A9 03        	lda #$03
-00024Br 2  09 C0        L0267:  ora #$C0
-00024Dr 2  8D rr rr     	sta L031F
-000250r 2  8D rr rr     L026C:  sta L0322
-000253r 2  8D rr rr     	sta L0331
-000256r 2  8D rr rr     	sta L033F
-000259r 2  A9 03        	lda #$03
-00025Br 2  8D rr rr     	sta L02DF
-00025Er 2  D0 16        	bne L0292
-000260r 2  00           	brk
-000261r 2  00           	brk
-000262r 2  00           	brk
-000263r 2  00           L027F:  brk
-000264r 2  00           L0280:  brk
-000265r 2  00           	brk
-000266r 2  2F           	.byte $2F
-000267r 2  00           L0283:  brk
-000268r 2  00           	brk
-000269r 2  2F           	.byte $2F
-00026Ar 2  00           	brk
-00026Br 2  00           	brk
-00026Cr 2  20 00 00     	jsr $0000
-00026Fr 2  3A           	.byte $3A
-000270r 2  00           	brk
-000271r 2  00           	brk
-000272r 2  3A           	.byte $3A
-000273r 2  00           	brk
-000274r 2  00           	brk
-000275r 2  8D           	.byte $8D
-000276r 2  20 rr rr     L0292:  jsr NSCEntry
-000279r 2  A2 07        	ldx #$07
-00027Br 2  BD rr rr     L0297:  lda L0303,x
-00027Er 2  DD rr rr     	cmp L02E0,x
-000281r 2  90 0F        	bcc L02AE
-000283r 2  DD rr rr     	cmp L02E8,x
-000286r 2  B0 0A        	bcs L02AE
-000288r 2  CA           	dex
-000289r 2  10 F0        	bpl L0297
-00028Br 2  CE rr rr     	dec L02DF
-00028Er 2  D0 E6        	bne L0292
-000290r 2  18           	clc
-000291r 2  60           	rts
-000292r 2  EE rr rr     L02AE:  inc L02DE
-000295r 2  AD rr rr     	lda L02DE
-000298r 2  C9 08        	cmp #$08
-00029Ar 2  90 AF        	bcc L0267
-00029Cr 2  D0 1D        	bne L02D7
-00029Er 2  A9 C0        	lda #$C0
-0002A0r 2  A0 15        	ldy #$15
-0002A2r 2  8D rr rr     	sta L031B
-0002A5r 2  8C rr rr     	sty L031A
-0002A8r 2  A0 07        	ldy #$07
-0002AAr 2  8D rr rr     	sta L031F
-0002ADr 2  8C rr rr     	sty L031E
-0002B0r 2  88           	dey
-0002B1r 2  8D rr rr     	sta L036F
-0002B4r 2  8C rr rr     	sty L036E
-0002B7r 2  A9 C8        	lda #$C8
-0002B9r 2  D0 95        	bne L026C
-0002BBr 2  A9 4C        L02D7:  lda #$4C
-0002BDr 2  8D rr rr     	sta L0316
-0002C0r 2  38           	sec
-0002C1r 2  60           	rts
-0002C2r 2  00           L02DE:  brk
-0002C3r 2  00           L02DF:  brk
-0002C4r 2  00           L02E0:  brk
-0002C5r 2  01 01 01     	.byte $01, $01, $01
-0002C8r 2  00           	brk
-0002C9r 2  00           	brk
-0002CAr 2  00           	brk
-0002CBr 2  00           	brk
-0002CCr 2  64 0D 20 38  L02E8:  .byte $64, $0d, $20, $38, $98,$3c, $3c, $64
-0002D0r 2  98 3C 3C 64  
-0002D4r 2  00           	brk
-0002D5r 2  00           	brk
-0002D6r 2  00           	brk
-0002D7r 2  00           	brk
-0002D8r 2  00           	brk
-0002D9r 2  00           	brk
-0002DAr 2  00           	brk
-0002DBr 2  00           	brk
-0002DCr 2  00           	brk
-0002DDr 2  00           	brk
-0002DEr 2  00           	brk
-0002DFr 2  00           	brk
-0002E0r 2  00           	brk
-0002E1r 2  00           	brk
-0002E2r 2  00           	brk
-0002E3r 2  00           	brk
-0002E4r 2  18           	clc
-0002E5r 2  90           	.byte $90
-0002E6r 2  09           L0302:	.byte $09
-0002E7r 2  00           L0303:  brk
-0002E8r 2  00           L0304:	brk
-0002E9r 2  00           	brk
-0002EAr 2  00           	brk
-0002EBr 2  00           L0307:	brk
-0002ECr 2  00           L0308:	brk
-0002EDr 2  00           L0309:	brk
-0002EEr 2  00           L030A:	brk
-0002EFr 2               NSCEntry:
-0002EFr 2  38           	sec
-0002F0r 2  08           L030C:	php
-0002F1r 2  78           	sei
-0002F2r 2  A9 00        	lda #$00
-0002F4r 2  8D rr rr     	sta L0304
-0002F7r 2               ;	sta L0280
-0002F7r 2  AD rr rr     L0316:	lda L03A3
-0002FAr 2  AD           	.byte $AD
-0002FBr 2  FF           L031A:	.byte $FF
-0002FCr 2  CF           L031B:	.byte $CF
-0002FDr 2  48           	pha
-0002FEr 2  8D           	.byte $8D
-0002FFr 2  00           L031E:	brk
-000300r 2  C3           L031F:  .byte $C3
-000301r 2  AD           	.byte $AD
-000302r 2  04           	.byte $04
-000303r 2  C3           L0322:	.byte $C3
-000304r 2  A2 08        	ldx #$08
-000306r 2  BD rr rr     L0325:	lda L03BF,x
-000309r 2  38           	sec
-00030Ar 2  6A           	ror a
-00030Br 2  48           L032A:	pha
-00030Cr 2  A9 00        	lda #$00
-00030Er 2  2A           	rol a
-00030Fr 2  A8           	tay
-000310r 2  B9           	.byte $B9
-000311r 2  00           	brk
-000312r 2  C3           L0331:	.byte $C3
-000313r 2  68           	pla
-000314r 2  4A           	lsr a
-000315r 2  D0 F4        	bne L032A
-000317r 2  CA           	dex
-000318r 2  D0 EC        	bne L0325
-00031Ar 2  A2 08        	ldx #$08
-00031Cr 2  A0 08        L033B:	ldy #$08
-00031Er 2  AD           L033D:	.byte $AD
-00031Fr 2  04           	.byte $04
-000320r 2  C3           L033F:	.byte $C3
-000321r 2  6A           	ror a
-000322r 2  66 42        	ror $42
-000324r 2  88           	dey
-000325r 2  D0 F7        	bne L033D
-000327r 2  A5 42        	lda $42
-000329r 2  9D rr rr     	sta L027F,x
-00032Cr 2  4A           	lsr a
-00032Dr 2  4A           	lsr a
-00032Er 2  4A           	lsr a
-00032Fr 2  4A           	lsr a
-000330r 2  A8           	tay
-000331r 2  A5 42        	lda $42
-000333r 2  C0 00        	cpy #$00
-000335r 2  F0 08        	beq L035E
-000337r 2  29 0F        	and #$0F
-000339r 2  18           	clc
-00033Ar 2  69 0A        L0359:	adc #$0A
-00033Cr 2  88           	dey
-00033Dr 2  D0 FB        	bne L0359
-00033Fr 2  9D rr rr     L035E:	sta L0302,x
-000342r 2  CA           	dex
-000343r 2  D0 D7        	bne L033B
-000345r 2  68           	pla
-000346r 2  30 03        	bmi L0370
-000348r 2  8D           	.byte $8D
-000349r 2  FF           L036E:	.byte $FF
-00034Ar 2  CF           L036F:	.byte $CF
-00034Br 2  A0 11        L0370:	ldy #$11
-00034Dr 2  A2 06        	ldx #$06
-00034Fr 2  28           L03A3:	plp
-000350r 2  B0 19        	bcs L03BF
-000352r 2  20 BE DE     	jsr LDEBE
-000355r 2  20 E3 DF     	jsr LDFE3
-000358r 2  20 6C DD     	jsr LDD6C
-00035Br 2  85 85        	sta $85
-00035Dr 2  84 86        	sty $86
-00035Fr 2  A9 80        	lda #$80
-000361r 2  A0 02        	ldy #$02
-000363r 2  A2 8D        	ldx #$8D
-000365r 2  20 E9 E3     	jsr LE3E9
-000368r 2  20 9A DA     	jsr LDA9A
-00036Br 2  60           L03BF:	rts
-00036Cr 2  5C           	.byte $5C
-00036Dr 2  A3           	.byte $A3
-00036Er 2  3A           	.byte $3A
-00036Fr 2  C5 5C        	cmp $5C
-000371r 2  A3           	.byte $A3
-000372r 2  3A           	.byte $3A
-000373r 2  C5 2F        L03C7:	cmp $2F
-000375r 2  2F           	.byte $2F
-000376r 2  20 3A 3A     	jsr L3A3A
-000379r 2  8D 00 00     	.byte $8D, $00, $00
-00037Cr 2               
-00037Cr 2               CheckForSlottedClocks:
-00037Cr 2               ;---------------------------------------------------------
-00037Cr 2               ; Look for clocks via signature in firmware
-00037Cr 2               ;---------------------------------------------------------
-00037Cr 2  38           	sec
-00037Dr 2               FindClockSlot:
-00037Dr 2  A9 00        	lda #$00
-00037Fr 2  A8           	tay
-000380r 2  85 07        	sta UTILPTR
-000382r 2  8D rr rr     	sta ClockSlot
-000385r 2  A2 07        	ldx #$07 ; Slot number
-000387r 2               FindClockSlotLoop:
-000387r 2  18           	clc
-000388r 2  8A           	txa
-000389r 2  69 C0        	adc #$c0
-00038Br 2  85 08        	sta UTILPTR+1
-00038Dr 2  A0 00        	ldy #$00		; Lookup offset
-00038Fr 2  B1 07        	lda (UTILPTR),y
-000391r 2  C9 08        	cmp #$08		; Is $Cn00 == $08?
-000393r 2  D0 17        	bne NotThunder
-000395r 2  C8           	iny			; Lookup offset
-000396r 2  B1 07        	lda (UTILPTR),y
-000398r 2  C9 78        	cmp #$78		; Is $Cn01 == $78?
-00039Ar 2  D0 10        	bne NotThunder
-00039Cr 2  C8           	iny			; Lookup offset
-00039Dr 2  B1 07        	lda (UTILPTR),y
-00039Fr 2  C9 28        	cmp #$28		; Is $Cn02 == $28?
-0003A1r 2  D0 09        	bne NotThunder
-0003A3r 2               ; Ok, we have a set of signature bytes for a Thunderclock.
-0003A3r 2  8E rr rr     	stx ClockSlot
-0003A6r 2  20 rr rr     	jsr PrepThunderclock
-0003A9r 2  4C rr rr     	jmp FindClockSlotDone
-0003ACr 2               NotThunder:
-0003ACr 2               	; Check for other slotted clocks
-0003ACr 2               FindClockSlotNext:
-0003ACr 2  CA           	dex
-0003ADr 2  D0 D8        	bne FindClockSlotLoop
-0003AFr 2               ; All done now, return with carry clear if we found a clock
-0003AFr 2               FindClockSlotDone:
-0003AFr 2  38           	sec
-0003B0r 2  AD rr rr     	lda ClockSlot
-0003B3r 2  F0 01        	beq :+
-0003B5r 2  18           	clc
-0003B6r 2  60           :	rts
-0003B7r 2  00           ClockSlot:	.byte 0
-0003B8r 2               
-0003B8r 2               PrepThunderclock:
-0003B8r 2               ;---------------------------------------------------------
-0003B8r 2               ; Patch the entry point of GetTime to the Thunderclock version
-0003B8r 2               ;---------------------------------------------------------
-0003B8r 2  A9 rr        	lda #<GetTimeThunderclock
-0003BAr 2  8D rr rr     	sta GetTime+1
-0003BDr 2  A9 rr        	lda #>GetTimeThunderclock
-0003BFr 2  8D rr rr     	sta GetTime+2
-0003C2r 2  60           	rts
-0003C3r 2               
-0003C3r 2  60           	rts
-0003C4r 2               
-0003C4r 2               
-0003C4r 2               GetTimeThunderclock:
-0003C4r 2               ;---------------------------------------------------------
-0003C4r 2               ; Get the current time from a Thunderclock - and convert from BCD
-0003C4r 2               ;---------------------------------------------------------
-0003C4r 2  AD rr rr     	lda ClockSlot
-0003C7r 2  0A           	asl a
-0003C8r 2  0A           	asl a
-0003C9r 2  0A           	asl a
-0003CAr 2  0A           	asl a
-0003CBr 2  A8           	tay
-0003CCr 2  A9 18        	lda #$18
-0003CEr 2  20 rr rr     	jsr L701B
-0003D1r 2  A9 08        	lda #$08
-0003D3r 2  20 rr rr     	jsr L701B
-0003D6r 2  A2 0A        	ldx #$0A
-0003D8r 2  20 rr rr     L7011:	jsr L7033
-0003DBr 2  9D rr rr     	sta L7069,x
-0003DEr 2  CA           	dex
-0003DFr 2  D0 F7        	bne L7011
-0003E1r 2  18           	clc		; Convert from BCD and copy out time
-0003E2r 2  AD rr rr     	lda TKH1	; Multiply 10s of hours by 10, add to units
-0003E5r 2  A2 0A        	ldx #$0a
-0003E7r 2  6D rr rr     :	adc TKH2
-0003EAr 2  CA           	dex
-0003EBr 2  D0 FA        	bne :-
-0003EDr 2  AD rr rr     	lda TKH2	; Hours
-0003F0r 2  8D rr rr     	sta TimeNow
-0003F3r 2  18           	clc
-0003F4r 2  AD rr rr     	lda TKM1	; Multiply 10s of minutes by 10, add to units
-0003F7r 2  A2 0A        	ldx #$0a
-0003F9r 2  6D rr rr     :	adc TKM2
+0000A3r 1               RestoreZP:
+0000A3r 1  A2 00                ldx     #$00
+0000A5r 1               @rloop:
+0000A5r 1  BD rr rr             lda     ZPSAVE,x
+0000A8r 1  95 00                sta     $00,x
+0000AAr 1  E8                   inx
+0000ABr 1  D0 F8                bne     @rloop
+0000ADr 1  60                   rts
+0000AEr 1               
+0000AEr 1               ; Applied Engineering TimeMaster II H.O. — ROM id at Cn00-01 ($4D $D9), not Thunder $08 $78 $28.
+0000AEr 1               CheckForTimeMaster:
+0000AEr 1  38                   sec
+0000AFr 1  A2 07                ldx     #$07
+0000B1r 1               @tmloop:
+0000B1r 1  18                   clc
+0000B2r 1  8A                   txa
+0000B3r 1  69 C0                adc     #$c0
+0000B5r 1  85 08                sta     UTILPTR+1
+0000B7r 1  A9 00                lda     #$00
+0000B9r 1  85 07                sta     UTILPTR
+0000BBr 1  A0 00                ldy     #$00
+0000BDr 1  B1 07                lda     (UTILPTR),y
+0000BFr 1  C9 4D                cmp     #$4D
+0000C1r 1  D0 0C                bne     @tmnext
+0000C3r 1  C8                   iny
+0000C4r 1  B1 07                lda     (UTILPTR),y
+0000C6r 1  C9 D9                cmp     #$D9
+0000C8r 1  D0 05                bne     @tmnext
+0000CAr 1  8E rr rr             stx     ClockSlot
+0000CDr 1  18                   clc
+0000CEr 1  60                   rts
+0000CFr 1               @tmnext:
+0000CFr 1  CA                   dex
+0000D0r 1  D0 DF                bne     @tmloop
+0000D2r 1  38                   sec
+0000D3r 1  60                   rts
+0000D4r 1               
+0000D4r 1                       .include "gettime.asm"
+0000D4r 2               ;
+0000D4r 2               ; SPF - Stress ProDOS Filesystem
+0000D4r 2               ; Copyright (C) 2013 - 2025 by David Schmidt
+0000D4r 2               ; 1110325+david-schmidt@users.noreply.github.com
+0000D4r 2               ;
+0000D4r 2               ; DClock: set DEBUG_DCLOCK_ONLY to 1 for IIc-only init + screen dump (set 0 for release).
+0000D4r 2               ;
+0000D4r 2               DEBUG_DCLOCK_ONLY = 0
+0000D4r 2               ;
+0000D4r 2               ; This program is free software; you can redistribute it and/or modify it
+0000D4r 2               ; under the terms of the GNU General Public License as published by the
+0000D4r 2               ; Free Software Foundation; either version 2 of the License, or (at your
+0000D4r 2               ; option) any later version.
+0000D4r 2               ;
+0000D4r 2               ; This program is distributed in the hope that it will be useful, but
+0000D4r 2               ; WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+0000D4r 2               ; or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+0000D4r 2               ; for more details.
+0000D4r 2               ;
+0000D4r 2               ; You should have received a copy of the GNU General Public License along
+0000D4r 2               ; with this program; if not, write to the Free Software Foundation, Inc.,
+0000D4r 2               ; 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+0000D4r 2               ;
+0000D4r 2               
+0000D4r 2               InitTime:
+0000D4r 2  38           	sec
+0000D5r 2  20 1F FE     	jsr $FE1F	; CheckForGS
+0000D8r 2  90 44        	bcc FoundClockGS
+0000DAr 2  A9 00        	lda #DEBUG_DCLOCK_ONLY
+0000DCr 2  F0 03        	beq InitTime_standard
+0000DEr 2  4C rr rr     	jmp InitTime_debug_dclock
+0000E1r 2               InitTime_standard:
+0000E1r 2               	; Apple IIc (VERSION=$06): DClock before anything else on $C0C0 (MegaFlash probe
+0000E1r 2               	; after ROMX). Probing MegaFlash first can upset AE RAM / DClock on MF-less IIc.
+0000E1r 2  AD B3 FB     	lda VERSION
+0000E4r 2  C9 06        	cmp #$06
+0000E6r 2  D0 05        	bne InitTime_not_iic
+0000E8r 2  20 rr rr     	jsr CheckForDClock
+0000EBr 2  90 5D        	bcc FoundClockDClock
+0000EDr 2               InitTime_not_iic:
+0000EDr 2  AD B3 FB     	lda VERSION
+0000F0r 2  C9 06        	cmp #$06
+0000F2r 2  F0 05        	beq InitTime_skip_nsc
+0000F4r 2  20 rr rr     	jsr CheckForNoSlotClock
+0000F7r 2  90 30        	bcc FoundClockNoSlot
+0000F9r 2               InitTime_skip_nsc:
+0000F9r 2  20 rr rr     	jsr CheckForROMX
+0000FCr 2  90 36        	bcc FoundClockROMX
+0000FEr 2  20 rr rr     	jsr CheckForMegaFlash
+000101r 2  B0 03        	bcs InitTime_megaMiss
+000103r 2  4C rr rr     	jmp FoundClockMegaFlash
+000106r 2               InitTime_megaMiss:
+000106r 2  20 rr rr     	jsr CheckForSlottedClocks
+000109r 2  90 02        	bcc InitTime_builtin_ok
+00010Br 2               InitTime_no_clock_any:
+00010Br 2  38           	sec
+00010Cr 2  60           	rts
+00010Dr 2               InitTime_builtin_ok:
+00010Dr 2  18           	clc
+00010Er 2  60           	rts
+00010Fr 2               
+00010Fr 2               ; IIc only: skip all other clocks; print diagnostics; patch GetTime if DClock OK.
+00010Fr 2               InitTime_debug_dclock:
+00010Fr 2  AD B3 FB     	lda VERSION
+000112r 2  C9 06        	cmp #$06
+000114r 2  D0 F5        	bne InitTime_no_clock_any
+000116r 2  20 rr rr     	jsr DclockDebugProbe
+000119r 2  B0 F0        	bcs InitTime_no_clock_any
+00011Br 2  4C rr rr     	jmp FoundClockDClock
+00011Er 2               
+00011Er 2               FoundClockGS:
+00011Er 2               ;---------------------------------------------------------
+00011Er 2               ; Patch the entry point of GetTime to the IIgs version
+00011Er 2               ;---------------------------------------------------------
+00011Er 2  A9 rr        	lda #<GetTimeGS
+000120r 2  8D rr rr     	sta GetTime+1
+000123r 2  A9 rr        	lda #>GetTimeGS
+000125r 2  8D rr rr     	sta GetTime+2
+000128r 2  60           	rts
+000129r 2               
+000129r 2               FoundClockNoSlot:
+000129r 2               ;---------------------------------------------------------
+000129r 2               ; Patch the entry point of GetTime to the NoSlotClock version
+000129r 2               ;---------------------------------------------------------
+000129r 2  A9 rr        	lda #<GetTimeNSC
+00012Br 2  8D rr rr     	sta GetTime+1
+00012Er 2  A9 rr        	lda #>GetTimeNSC
+000130r 2  8D rr rr     	sta GetTime+2
+000133r 2  60           	rts
+000134r 2               
+000134r 2               FoundClockROMX:
+000134r 2               ;---------------------------------------------------------
+000134r 2               ; Patch the entry point of GetTime to the ROMX version
+000134r 2               ;---------------------------------------------------------
+000134r 2  A9 rr        	lda #<GetTimeROMX
+000136r 2  8D rr rr     	sta GetTime+1
+000139r 2  A9 rr        	lda #>GetTimeROMX
+00013Br 2  8D rr rr     	sta GetTime+2
+00013Er 2  60           	rts
+00013Fr 2               
+00013Fr 2               FoundClockMegaFlash:
+00013Fr 2               ;---------------------------------------------------------
+00013Fr 2               ; Patch the entry point of GetTime to the MegaFlash version
+00013Fr 2               ;---------------------------------------------------------
+00013Fr 2  A9 rr        	lda #<GetTimeMegaFlash
+000141r 2  8D rr rr     	sta GetTime+1
+000144r 2  A9 rr        	lda #>GetTimeMegaFlash
+000146r 2  8D rr rr     	sta GetTime+2
+000149r 2  60           	rts
+00014Ar 2               
+00014Ar 2               FoundClockDClock:
+00014Ar 2  A9 rr        	lda #<GetTimeDClock
+00014Cr 2  8D rr rr     	sta GetTime+1
+00014Fr 2  A9 rr        	lda #>GetTimeDClock
+000151r 2  8D rr rr     	sta GetTime+2
+000154r 2  60           	rts
+000155r 2               
+000155r 2               ;----------------------------------------------------------------------
+000155r 2               ; Applied Engineering DClock (IIc Memory Expansion, DS1215 at slinky $080000 bit0).
+000155r 2               ; Protocol from AE DClock disk SOURCE.UTIL (ORCA), 1988 — same unlock pattern as
+000155r 2               ; DCLOCK.SYSTEM on doc/D-Clock.dsk: eight bytes C5 3A A3 5C × 2, each bit LSB-first.
+000155r 2               ;----------------------------------------------------------------------
+000155r 2               DC_ROMSLOT	= $C400
+000155r 2               DC_READDR	= $C0C0
+000155r 2               DC_REDATA	= $C0C3
+000155r 2               DC_C8OFF	= $CFFF
+000155r 2               
+000155r 2               CheckForDClock:
+000155r 2  20 rr rr     	jsr DclockRead
+000158r 2  20 rr rr     	jsr DClockValidTime
+00015Br 2  60           	rts
+00015Cr 2               
+00015Cr 2               DclockReset:
+00015Cr 2  AD FF CF     	lda DC_C8OFF
+00015Fr 2  AD 00 C4     	lda DC_ROMSLOT
+000162r 2  A9 00        	lda #$00
+000164r 2  8D C0 C0     	sta DC_READDR
+000167r 2  8D C1 C0     	sta DC_READDR+1
+00016Ar 2  A9 08        	lda #$08
+00016Cr 2  8D C2 C0     	sta DC_READDR+2
+00016Fr 2  AD C3 C0     	lda DC_REDATA
+000172r 2  60           	rts
+000173r 2               
+000173r 2               DclockEnable:
+000173r 2  A0 00        	ldy #$00
+000175r 2  B9 rr rr     :	lda DCUnlockPattern,y
+000178r 2  20 rr rr     	jsr DclockWrite8
+00017Br 2  C8           	iny
+00017Cr 2  C0 08        	cpy #$08
+00017Er 2  90 F5        	bcc :-
+000180r 2  60           	rts
+000181r 2               
+000181r 2               DCUnlockPattern:
+000181r 2  C5 3A A3 5C  	.byte $C5, $3A, $A3, $5C, $C5, $3A, $A3, $5C
+000185r 2  C5 3A A3 5C  
+000189r 2               
+000189r 2               ; Pattern byte in A (SOURCE.UTIL Write8); must not clobber A before first bit write.
+000189r 2               DclockWrite8:
+000189r 2  8D rr rr     	sta DCW8Byte
+00018Cr 2  A0 08        	ldy #$08
+00018Er 2  A9 00        	lda #$00
+000190r 2  8D C0 C0     	sta DC_READDR
+000193r 2  8D C1 C0     	sta DC_READDR+1
+000196r 2  A9 08        	lda #$08
+000198r 2  8D C2 C0     	sta DC_READDR+2
+00019Br 2               DclockWbit:
+00019Br 2  AD rr rr     	lda DCW8Byte
+00019Er 2  8D C3 C0     	sta DC_REDATA
+0001A1r 2  A9 00        	lda #$00
+0001A3r 2  8D C0 C0     	sta DC_READDR
+0001A6r 2  8D C1 C0     	sta DC_READDR+1
+0001A9r 2  4E rr rr     	lsr DCW8Byte
+0001ACr 2  88           	dey
+0001ADr 2  D0 EC        	bne DclockWbit
+0001AFr 2  60           	rts
+0001B0r 2               
+0001B0r 2               DclockRead8:
+0001B0r 2  A0 08        	ldy #$08
+0001B2r 2  A9 00        	lda #$00
+0001B4r 2  8D C0 C0     	sta DC_READDR
+0001B7r 2  8D C1 C0     	sta DC_READDR+1
+0001BAr 2  A9 08        	lda #$08
+0001BCr 2  8D C2 C0     	sta DC_READDR+2
+0001BFr 2  A9 00        	lda #$00		; running byte (AE Read8 assumes A defined at first pha)
+0001C1r 2               DclockRbit:
+0001C1r 2  48           	pha
+0001C2r 2  AD C3 C0     	lda DC_REDATA
+0001C5r 2  4A           	lsr a
+0001C6r 2  68           	pla
+0001C7r 2  6A           	ror a
+0001C8r 2  88           	dey
+0001C9r 2  D0 F6        	bne DclockRbit
+0001CBr 2  60           	rts
+0001CCr 2               
+0001CCr 2               DclockRestore:
+0001CCr 2  A9 08        	lda #$08
+0001CEr 2  8D C2 C0     	sta DC_READDR+2
+0001D1r 2  A9 00        	lda #$00
+0001D3r 2  8D C0 C0     	sta DC_READDR
+0001D6r 2  8D C1 C0     	sta DC_READDR+1
+0001D9r 2  AD rr rr     	lda DCPreserve
+0001DCr 2  8D C3 C0     	sta DC_REDATA
+0001DFr 2  AD FF CF     	lda DC_C8OFF
+0001E2r 2  60           	rts
+0001E3r 2               
+0001E3r 2               ; DEBUG: two reads + validation + decoded TimeNow to screen (monitor PRBYTE/COUT1).
+0001E3r 2               DclockDebugProbe:
+0001E3r 2  20 8E FD     	jsr CROUT
+0001E6r 2  A0 00        	ldy #$00
+0001E8r 2  B9 rr rr     :	lda DCdHdr,y
+0001EBr 2  F0 06        	beq :+
+0001EDr 2  20 ED FD     	jsr COUT1
+0001F0r 2  C8           	iny
+0001F1r 2  D0 F5        	bne :-
+0001F3r 2  20 rr rr     :	jsr DclockRead
+0001F6r 2  20 rr rr     	jsr DCdbgPrRaw1
+0001F9r 2  20 rr rr     	jsr DClockValidTime
+0001FCr 2  B0 4F        	bcs DCdbgFail
+0001FEr 2  A0 00        	ldy #$00
+000200r 2  B9 rr rr     :	lda DCdOk,y
+000203r 2  F0 06        	beq :+
+000205r 2  20 ED FD     	jsr COUT1
+000208r 2  C8           	iny
+000209r 2  D0 F5        	bne :-
+00020Br 2  20 8E FD     :	jsr CROUT
+00020Er 2  20 rr rr     	jsr DclockRead
+000211r 2  20 rr rr     	jsr DCdbgPrRaw2
+000214r 2  20 rr rr     	jsr DClockValidTime
+000217r 2  B0 34        	bcs DCdbgFail
+000219r 2  20 rr rr     	jsr DCdbgFillTimeNow
+00021Cr 2  A0 00        	ldy #$00
+00021Er 2               @binLbl:
+00021Er 2  B9 rr rr     	lda DCdBin,y
+000221r 2  F0 06        	beq @binDone
+000223r 2  20 ED FD     	jsr COUT1
+000226r 2  C8           	iny
+000227r 2  D0 F5        	bne @binLbl
+000229r 2               @binDone:
+000229r 2  A2 00        	ldx #$00
+00022Br 2               @tLp:
+00022Br 2  BD rr rr     	lda TimeNow,x
+00022Er 2  20 DA FD     	jsr PRBYTE
+000231r 2  A9 A0        	lda #$a0
+000233r 2  20 ED FD     	jsr COUT1
+000236r 2  E8           	inx
+000237r 2  E0 04        	cpx #$04
+000239r 2  90 F0        	bcc @tLp
+00023Br 2  A0 00        	ldy #$00
+00023Dr 2               @dnLp:
+00023Dr 2  B9 rr rr     	lda DCdDone,y
+000240r 2  F0 06        	beq DCdbgExitOk
+000242r 2  20 ED FD     	jsr COUT1
+000245r 2  C8           	iny
+000246r 2  D0 F5        	bne @dnLp
+000248r 2               DCdbgExitOk:
+000248r 2  20 8E FD     	jsr CROUT
+00024Br 2  18           	clc
+00024Cr 2  60           	rts
+00024Dr 2               DCdbgFail:
+00024Dr 2  A0 00        	ldy #$00
+00024Fr 2  B9 rr rr     :	lda DCdBad,y
+000252r 2  F0 06        	beq :+
+000254r 2  20 ED FD     	jsr COUT1
+000257r 2  C8           	iny
+000258r 2  D0 F5        	bne :-
+00025Ar 2  20 8E FD     :	jsr CROUT
+00025Dr 2  38           	sec
+00025Er 2  60           	rts
+00025Fr 2               
+00025Fr 2               DCdbgPrRaw1:
+00025Fr 2  A0 00        	ldy #$00
+000261r 2               @r1:
+000261r 2  B9 rr rr     	lda DCdR1,y
+000264r 2  F0 13        	beq DCdbgPr8
+000266r 2  20 ED FD     	jsr COUT1
+000269r 2  C8           	iny
+00026Ar 2  D0 F5        	bne @r1
+00026Cr 2               DCdbgPrRaw2:
+00026Cr 2  A0 00        	ldy #$00
+00026Er 2               @r2:
+00026Er 2  B9 rr rr     	lda DCdR2,y
+000271r 2  F0 06        	beq DCdbgPr8
+000273r 2  20 ED FD     	jsr COUT1
+000276r 2  C8           	iny
+000277r 2  D0 F5        	bne @r2
+000279r 2               DCdbgPr8:
+000279r 2  A0 00        	ldy #$00
+00027Br 2               @p8:
+00027Br 2  B9 rr rr     	lda DCBuf,y
+00027Er 2  20 DA FD     	jsr PRBYTE
+000281r 2  A9 A0        	lda #$a0
+000283r 2  20 ED FD     	jsr COUT1
+000286r 2  C8           	iny
+000287r 2  C0 08        	cpy #$08
+000289r 2  90 F0        	bcc @p8
+00028Br 2  4C 8E FD     	jmp CROUT
+00028Er 2               
+00028Er 2               DCdbgFillTimeNow:
+00028Er 2  AD rr rr     	lda DCBuf+0
+000291r 2  20 rr rr     	jsr DC_BCD2Binary
+000294r 2  8D rr rr     	sta TimeNow+3
+000297r 2  AD rr rr     	lda DCBuf+1
+00029Ar 2  29 7F        	and #$7F
+00029Cr 2  20 rr rr     	jsr DC_BCD2Binary
+00029Fr 2  8D rr rr     	sta TimeNow+2
+0002A2r 2  AD rr rr     	lda DCBuf+2
+0002A5r 2  29 7F        	and #$7F
+0002A7r 2  20 rr rr     	jsr DC_BCD2Binary
+0002AAr 2  8D rr rr     	sta TimeNow+1
+0002ADr 2  AD rr rr     	lda DCBuf+3
+0002B0r 2  29 3F        	and #$3F
+0002B2r 2  20 rr rr     	jsr DC_BCD2Binary
+0002B5r 2  8D rr rr     	sta TimeNow
+0002B8r 2  60           	rts
+0002B9r 2               
+0002B9r 2  44 43 4C 4F  DCdHdr:	.byte "DCLOCK DEBUG (IIc only)", 0
+0002BDr 2  43 4B 20 44  
+0002C1r 2  45 42 55 47  
+0002D1r 2  52 31 20 00  DCdR1:	.byte "R1 ", 0
+0002D5r 2  52 32 20 00  DCdR2:	.byte "R2 ", 0
+0002D9r 2  56 41 4C 49  DCdOk:	.byte "VALID ", 0
+0002DDr 2  44 20 00     
+0002E0r 2  56 41 4C 49  DCdBad:	.byte "VALID? FAIL ", 0
+0002E4r 2  44 3F 20 46  
+0002E8r 2  41 49 4C 20  
+0002EDr 2  42 49 4E 20  DCdBin:	.byte "BIN H M S 1/100 ", 0
+0002F1r 2  48 20 4D 20  
+0002F5r 2  53 20 31 2F  
+0002FEr 2  50 41 54 43  DCdDone: .byte "PATCH OK", 0
+000302r 2  48 20 4F 4B  
+000306r 2  00           
+000307r 2               
+000307r 2               DclockRead:
+000307r 2  20 rr rr     	jsr DclockReset
+00030Ar 2  8D rr rr     	sta DCPreserve
+00030Dr 2  20 rr rr     	jsr DclockEnable
+000310r 2  A0 00        	ldy #$00
+000312r 2  20 rr rr     :	jsr DclockRead8
+000315r 2  99 rr rr     	sta DCBuf,y
+000318r 2  C8           	iny
+000319r 2  C0 08        	cpy #$08
+00031Br 2  90 F5        	bcc :-
+00031Dr 2  4C rr rr     	jmp DclockRestore
+000320r 2               
+000320r 2               DClockValidTime:
+000320r 2  A2 00        	ldx #$00
+000322r 2  A0 99        	ldy #$99
+000324r 2  AD rr rr     	lda DCBuf+0
+000327r 2  20 rr rr     	jsr DC_ValidBCD
+00032Ar 2  B0 56        	bcs DCvt_bad
+00032Cr 2  A2 00        	ldx #$00
+00032Er 2  A0 59        	ldy #$59
+000330r 2  AD rr rr     	lda DCBuf+1
+000333r 2  20 rr rr     	jsr DC_ValidBCD
+000336r 2  B0 4A        	bcs DCvt_bad
+000338r 2  A2 00        	ldx #$00
+00033Ar 2  A0 59        	ldy #$59
+00033Cr 2  AD rr rr     	lda DCBuf+2
+00033Fr 2  20 rr rr     	jsr DC_ValidBCD
+000342r 2  B0 3E        	bcs DCvt_bad
+000344r 2  A2 00        	ldx #$00
+000346r 2  A0 23        	ldy #$23
+000348r 2  AD rr rr     	lda DCBuf+3
+00034Br 2  20 rr rr     	jsr DC_ValidBCD
+00034Er 2  B0 32        	bcs DCvt_bad
+000350r 2  A2 01        	ldx #$01
+000352r 2  A0 07        	ldy #$07
+000354r 2  AD rr rr     	lda DCBuf+4
+000357r 2  20 rr rr     	jsr DC_ValidBCD
+00035Ar 2  B0 26        	bcs DCvt_bad
+00035Cr 2  A2 01        	ldx #$01
+00035Er 2  A0 31        	ldy #$31
+000360r 2  AD rr rr     	lda DCBuf+5
+000363r 2  20 rr rr     	jsr DC_ValidBCD
+000366r 2  B0 1A        	bcs DCvt_bad
+000368r 2  A2 01        	ldx #$01
+00036Ar 2  A0 12        	ldy #$12
+00036Cr 2  AD rr rr     	lda DCBuf+6
+00036Fr 2  20 rr rr     	jsr DC_ValidBCD
+000372r 2  B0 0E        	bcs DCvt_bad
+000374r 2  A2 00        	ldx #$00
+000376r 2  A0 99        	ldy #$99
+000378r 2  AD rr rr     	lda DCBuf+7
+00037Br 2  20 rr rr     	jsr DC_ValidBCD
+00037Er 2  B0 02        	bcs DCvt_bad
+000380r 2  18           	clc
+000381r 2  60           	rts
+000382r 2               DCvt_bad:
+000382r 2  38           	sec
+000383r 2  60           	rts
+000384r 2               
+000384r 2               ; A = BCD, X = low bound BCD, Y = high BCD — CC if X <= A <= Y
+000384r 2               DC_ValidBCD:
+000384r 2  F8           	sed
+000385r 2  8E rr rr     	stx DCBcdScratch
+000388r 2  CD rr rr     	cmp DCBcdScratch
+00038Br 2  90 0D        	bcc DCv_bad
+00038Dr 2  8C rr rr     	sty DCBcdScratch
+000390r 2  CD rr rr     	cmp DCBcdScratch
+000393r 2  F0 02        	beq DCv_ok
+000395r 2  B0 03        	bcs DCv_bad
+000397r 2               DCv_ok:
+000397r 2  D8           	cld
+000398r 2  18           	clc
+000399r 2  60           	rts
+00039Ar 2               DCv_bad:
+00039Ar 2  D8           	cld
+00039Br 2  38           	sec
+00039Cr 2  60           	rts
+00039Dr 2               
+00039Dr 2               ; BCD in A -> binary in A (SOURCE.UTIL BCD2Binary)
+00039Dr 2               DC_BCD2Binary:
+00039Dr 2  48           	pha
+00039Er 2  29 F0        	and #$F0
+0003A0r 2  4A           	lsr a
+0003A1r 2  8D rr rr     	sta DCBcdScratch
+0003A4r 2  4A           	lsr a
+0003A5r 2  4A           	lsr a
+0003A6r 2  6D rr rr     	adc DCBcdScratch
+0003A9r 2  8D rr rr     	sta DCBcdScratch
+0003ACr 2  68           	pla
+0003ADr 2  29 0F        	and #$0F
+0003AFr 2  6D rr rr     	adc DCBcdScratch
+0003B2r 2  60           	rts
+0003B3r 2               
+0003B3r 2               GetTimeDClock:
+0003B3r 2  20 rr rr     	jsr DclockRead
+0003B6r 2  AD rr rr     	lda DCBuf+0
+0003B9r 2  20 rr rr     	jsr DC_BCD2Binary
+0003BCr 2  8D rr rr     	sta TimeNow+3
+0003BFr 2  AD rr rr     	lda DCBuf+1
+0003C2r 2  29 7F        	and #$7F
+0003C4r 2  20 rr rr     	jsr DC_BCD2Binary
+0003C7r 2  8D rr rr     	sta TimeNow+2
+0003CAr 2  AD rr rr     	lda DCBuf+2
+0003CDr 2  29 7F        	and #$7F
+0003CFr 2  20 rr rr     	jsr DC_BCD2Binary
+0003D2r 2  8D rr rr     	sta TimeNow+1
+0003D5r 2  AD rr rr     	lda DCBuf+3
+0003D8r 2  29 3F        	and #$3F
+0003DAr 2  20 rr rr     	jsr DC_BCD2Binary
+0003DDr 2  8D rr rr     	sta TimeNow
+0003E0r 2  60           	rts
+0003E1r 2               
+0003E1r 2               GetTime:
+0003E1r 2  20 00 00     	jsr $0000
+0003E4r 2  60           	rts
+0003E5r 2               
+0003E5r 2               
+0003E5r 2               GetTimeGS:
+0003E5r 2               ;---------------------------------------------------------
+0003E5r 2               ; Get the current time on the GS
+0003E5r 2               ;---------------------------------------------------------
+0003E5r 2               .P816
+0003E5r 2  18           	clc
+0003E6r 2  FB           	.byte $FB	; xce
+0003E7r 2  C2 30        	rep #$30
+0003E9r 2               .A16
+0003E9r 2               .I16
+0003E9r 2  48           	pha
+0003EAr 2  48           	pha
+0003EBr 2  48           	pha
+0003ECr 2  48           	pha
+0003EDr 2  A2 03 0D     	ldx #$0D03
+0003F0r 2  22 00 00 E1  	jsl $E10000
+0003F4r 2  E2 30        	sep #$30
+0003F6r 2               .I8
+0003F6r 2  A2 07        	ldx #7
+0003F8r 2               GTGSLoop:
+0003F8r 2  68           	pla
+0003F9r 2  9D rr rr     	sta GSTime,X
 0003FCr 2  CA           	dex
-0003FDr 2  D0 FA        	bne :-
-0003FFr 2  AD rr rr     	lda TKM2	; Minutes
-000402r 2  8D rr rr     	sta TimeNow+1
-000405r 2  18           	clc
-000406r 2  AD rr rr     	lda TKS1	; Multiply 10s of seconds by 10, add to units
-000409r 2  A2 0A        	ldx #$0a
-00040Br 2  6D rr rr     :	adc TKS2
-00040Er 2  CA           	dex
-00040Fr 2  D0 FA        	bne :-
-000411r 2  AD rr rr     	lda TKS2	; Seconds
-000414r 2  8D rr rr     	sta TimeNow+2
-000417r 2  A9 00        	lda #$00	; Hundredths (not available on Thunderclock)
-000419r 2  8D rr rr     	sta TimeNow+3
-00041Cr 2  60           	rts
-00041Dr 2  99 80 C0     L701B:	sta $C080,y
-000420r 2  09 04        	ora #$04
-000422r 2  99 80 C0     	sta $C080,y
-000425r 2  20 rr rr     	jsr L702B
-000428r 2  49 04        	eor #$04
-00042Ar 2  99 80 C0     	sta $C080,y
-00042Dr 2  20 rr rr     L702B:	jsr L702E
-000430r 2  48           L702E:	pha
-000431r 2  48           	pha
-000432r 2  68           	pla
-000433r 2  68           	pla
-000434r 2  60           	rts
-000435r 2  48           L7033:	pha
-000436r 2  A9 04        	lda #$04
-000438r 2  8D rr rr     	sta L7068
-00043Br 2  A9 00        	lda #$00
-00043Dr 2  8D rr rr     	sta L7069
-000440r 2  B9 80 C0     L703E:	lda $C080,y
-000443r 2  0A           	asl a
-000444r 2  6E rr rr     	ror L7069
-000447r 2  68           	pla
-000448r 2  48           	pha
-000449r 2  29 01        	and #$01
-00044Br 2  99 80 C0     	sta $C080,y
-00044Er 2  09 02        	ora #$02
-000450r 2  99 80 C0     	sta $C080,y
-000453r 2  49 02        	eor #$02
-000455r 2  99 80 C0     	sta $C080,y
-000458r 2  68           	pla
-000459r 2  6A           	ror a
-00045Ar 2  48           	pha
-00045Br 2  CE rr rr     	dec L7068
-00045Er 2  D0 E0        	bne L703E
-000460r 2  68           	pla
-000461r 2  AD rr rr     	lda L7069
-000464r 2  18           	clc
-000465r 2  6A           	ror a
-000466r 2  6A           	ror a
-000467r 2  6A           	ror a
-000468r 2  6A           	ror a
-000469r 2  60           	rts
-00046Ar 2  00           L7068:	brk
-00046Br 2  00           L7069:	brk
-00046Cr 2  00           	brk
-00046Dr 2  00           	brk
-00046Er 2  00           	brk
-00046Fr 2  00           	brk
-000470r 2  00           TKH1:	brk
-000471r 2  00           TKH2:	brk
-000472r 2  00           TKM1:	brk
-000473r 2  00           TKM2:	brk
-000474r 2  00           TKS1:	brk
-000475r 2  00           TKS2:	brk
-000476r 2               
-000476r 1               
-000476r 1               ; A2Speed wrapper for SPF MegaFlash time read:
-000476r 1               ; SPF returns a first byte in 4 ms units and currently zeros TimeNow+3.
-000476r 1               ; Convert that 0..249 range to exact hundredths via a lookup table.
-000476r 1               GetTimeMegaFlashA2:
-000476r 1  A9 18                lda     #MF_CMD_GETPRODOS25TIME
-000478r 1  8D C0 C0             sta     MF_CMDSTATUS
-00047Br 1               @mf_wait:
-00047Br 1  2C C0 C0             bit     MF_CMDSTATUS
-00047Er 1  30 FB                bmi     @mf_wait
-000480r 1  70 4E                bvs     @mf_done
-000482r 1  AD C1 C0             lda     MF_PARAM                ; t4ms (0..249 in 4 ms units)
-000485r 1  8D rr rr             sta     MFTimeA2+0
-000488r 1  AD C1 C0             lda     MF_PARAM                ; seconds
-00048Br 1  8D rr rr             sta     MFTimeA2+1
-00048Er 1  AD C1 C0             lda     MF_PARAM                ; time lo
-000491r 1  8D rr rr             sta     MFTimeA2+2
-000494r 1  AD C1 C0             lda     MF_PARAM                ; time hi
-000497r 1  8D rr rr             sta     MFTimeA2+3
-00049Ar 1  AD C1 C0             lda     MF_PARAM                ; date lo - discard
-00049Dr 1  AD C1 C0             lda     MF_PARAM                ; date hi - discard
-0004A0r 1  AE rr rr             ldx     MFTimeA2+0
-0004A3r 1  BD rr rr             lda     MegaFlashHundredths,x
-0004A6r 1  8D rr rr             sta     TimeNow+3               ; Hundredths
-0004A9r 1  AD rr rr             lda     MFTimeA2+2
-0004ACr 1  29 3F                and     #$3F
-0004AEr 1  8D rr rr             sta     TimeNow+1               ; Minutes
-0004B1r 1  AD rr rr             lda     MFTimeA2+2
-0004B4r 1  4A                   lsr     a
-0004B5r 1  4A                   lsr     a
-0004B6r 1  4A                   lsr     a
-0004B7r 1  4A                   lsr     a
-0004B8r 1  4A                   lsr     a
-0004B9r 1  4A                   lsr     a
-0004BAr 1  8D rr rr             sta     MFTimeA2+0              ; temp: hour low 2 bits
-0004BDr 1  AD rr rr             lda     MFTimeA2+3
-0004C0r 1  29 07                and     #$07
-0004C2r 1  0A                   asl     a
-0004C3r 1  0A                   asl     a
-0004C4r 1  0D rr rr             ora     MFTimeA2+0
-0004C7r 1  8D rr rr             sta     TimeNow                 ; Hours
-0004CAr 1  AD rr rr             lda     MFTimeA2+1
-0004CDr 1  8D rr rr             sta     TimeNow+2               ; Seconds
-0004D0r 1               @mf_done:
-0004D0r 1  60                   rts
-0004D1r 1               
-0004D1r 1               MFTimeA2:
-0004D1r 1  xx xx xx xx          .res    4
-0004D5r 1               
-0004D5r 1               MegaFlashHundredths:
-0004D5r 1  00 00 00 01          .repeat 250, I
-0004D9r 1  01 02 02 02  
-0004DDr 1  03 03 04 04  
-0005CFr 1                       .byte   (I * 4) / 10
-0005CFr 1                       .endrepeat
-0005CFr 1               
-0005CFr 1               CLOCK_KIND:
-0005CFr 1  xx                   .res    1
-0005D0r 1               ZPSAVE:
-0005D0r 1  xx xx xx xx          .res    256
-0005D4r 1  xx xx xx xx  
-0005D8r 1  xx xx xx xx  
-0006D0r 1               TimeNow:
-0006D0r 1  xx xx xx xx          .res    4
-0006D0r 1               
+0003FDr 2  10 F9        	bpl GTGSLoop
+0003FFr 2  38           	sec
+000400r 2  FB           	.byte $FB	; xce
+000401r 2               .A8
+000401r 2  AD rr rr     	lda GSTime+5	; Hours
+000404r 2  8D rr rr     	sta TimeNow
+000407r 2  AD rr rr     	lda GSTime+6	; Minutes
+00040Ar 2  8D rr rr     	sta TimeNow+1
+00040Dr 2  AD rr rr     	lda GSTime+7	; Seconds
+000410r 2  8D rr rr     	sta TimeNow+2
+000413r 2  A9 00        	lda #$00	; Hundredths (not available on GS)
+000415r 2  8D rr rr     	sta TimeNow+3
+000418r 2  60           	rts
+000419r 2               .P02
+000419r 2               
+000419r 2               GSTime:
+000419r 2  xx xx xx xx  	.res 8
+00041Dr 2  xx xx xx xx  
+000421r 2               
+000421r 2               ;---------------------------------------------------------
+000421r 2               ; BASIC test program for the GS time-getting algorithm
+000421r 2               ;---------------------------------------------------------
+000421r 2               
+000421r 2               ;10 X = 768:Z = 803
+000421r 2               ;20 READ Y: IF Y >  - 1 THEN  POKE X,Y:X = X + 1: GOTO 20
+000421r 2               ;30 DATA 56,32,31,254,144,1,96,251,194,48,72,72,72,72
+000421r 2               ;40 DATA 162,3,13,34,0,0,225,226,48,162,7,104,157,35,3
+000421r 2               ;50 DATA 202,16,249,56,251,96,-1
+000421r 2               ;60 CALL 768
+000421r 2               ;70 WD =  PEEK (Z): REM Weekday (1=Sun...7=Sat)
+000421r 2               ;80 MO =  PEEK (Z+2): REM Month (0=Jan...11=Dec)
+000421r 2               ;90 DA =  PEEK (Z+3): REM Day (0...30)
+000421r 2               ;100 YR =  PEEK (Z+4): REM Year-1900
+000421r 2               ;110 HR =  PEEK (Z+5): REM Hour (0...23)
+000421r 2               ;120 MN =  PEEK (Z+6): REM Minute (0...59)
+000421r 2               ;130 SC =  PEEK (Z+7): REM Second (0...59)
+000421r 2               ;140 PRINT "Hour: ";HR;" Minute: ";MN;" Second: ";SC
+000421r 2               
+000421r 2               GetTimeNSC:
+000421r 2  20 rr rr     	jsr NSCEntry
+000424r 2  AD rr rr     	lda L0307	; Hours
+000427r 2  8D rr rr     	sta TimeNow
+00042Ar 2  AD rr rr     	lda L0308	; Minutes
+00042Dr 2  8D rr rr     	sta TimeNow+1
+000430r 2  AD rr rr     	lda L0309	; Seconds
+000433r 2  8D rr rr     	sta TimeNow+2
+000436r 2  AD rr rr     	lda L030A	; Hundredths
+000439r 2  8D rr rr     	sta TimeNow+3
+00043Cr 2  60           	rts
+00043Dr 2               
+00043Dr 2               CheckForROMX:
+00043Dr 2               	; Return with carry clear means we found one
+00043Dr 2  2C E0 C0     	bit $C0E0	; Temporarily disable Zip Chip
+000440r 2  2C CA FA     	bit $FACA	; Select ROMX Bank 0
+000443r 2  2C CA FA     	bit $FACA
+000446r 2  2C FE FA     	bit $FAFE
+000449r 2  AD FE DF     	lda $DFFE	; Will return $4A if ROMX present
+00044Cr 2  C9 4A        	cmp #$4A	;  or $AA if ROMX in Recovery mode
+00044Er 2  D0 0B        	bne NoROMX
+000450r 2  AD FF DF     	lda $DFFF	; Will return $CD if ROMX present
+000453r 2  C9 CD        	cmp #$CD	;  or $55 if ROMX in Recovery mode
+000455r 2  D0 04        	bne NoROMX
+000457r 2               	; Here we know we have a ROMX
+000457r 2  18           	clc
+000458r 2  4C rr rr     	jmp DoneROMX
+00045Br 2               	NoROMX:
+00045Br 2  38           	sec
+00045Cr 2               	DoneROMX:
+00045Cr 2  2C 51 F8     	bit $F851	; Return to Main Bank (MUST DO, EVEN IF ROMX NOT FOUND!)
+00045Fr 2  60           	rts
+000460r 2               
+000460r 2               GetTimeROMX:
+000460r 2  2C E0 C0     	bit $C0E0	; Temporarily disable Zip Chip
+000463r 2  2C CA FA     	bit $FACA
+000466r 2  2C CA FA     	bit $FACA
+000469r 2  2C FE FA     	bit $FAFE	; activate bank 0
+00046Cr 2  20 F0 D8     	jsr $D8F0	; read clock through firmware entry point
+00046Fr 2  2C 51 F8     	bit $F851	; exit bank 0
+000472r 2               
+000472r 2  AD B2 02     	lda $2B2	; Hours
+000475r 2  8D rr rr     	sta TimeNow
+000478r 2  AD B1 02     	lda $2B1	; Minutes
+00047Br 2  8D rr rr     	sta TimeNow+1
+00047Er 2  AD B0 02     	lda $2B0	; Seconds + $80 ST Oscillator enabled bit
+000481r 2  29 7F        	and #$7f	; Seconds
+000483r 2  8D rr rr     	sta TimeNow+2
+000486r 2  A9 00        	lda #$00	; Hundredths (not available on ROMX)
+000488r 2  8D rr rr     	sta TimeNow+3
+00048Br 2  60           	rts
+00048Cr 2               
+00048Cr 2               ;---------------------------------------------------------
+00048Cr 2               ; MegaFlash clock support (Apple IIc/IIc+ with MegaFlash)
+00048Cr 2               ; https://github.com/ThomasFok/MegaFlash
+00048Cr 2               ;
+00048Cr 2               ; Design notes: doc/MegaFlash_Clock.md
+00048Cr 2               ;
+00048Cr 2               ; Activation is handled in MegaFlash ROM; we only check for presence and read time.
+00048Cr 2               ; Detection: CMD_GETDEVINFO returns signature $88,$74 in paramreg.
+00048Cr 2               ;
+00048Cr 2               ; GetTime: CMD_GETPRODOS25TIME returns 6 bytes. Time word (bytes 2-3)
+00048Cr 2               ; packs [mday:5][hour:5][min:6]; we extract hour=(time>>6)&$1F,
+00048Cr 2               ; min=time&$3F. Byte 1 = seconds.
+00048Cr 2               ;---------------------------------------------------------
+00048Cr 2               MF_CMDSTATUS	= $C0C0
+00048Cr 2               MF_PARAM	= $C0C1
+00048Cr 2               MF_CMD_GETDEVINFO	= $10
+00048Cr 2               MF_CMD_GETPRODOS25TIME	= $18
+00048Cr 2               MF_SIGNATURE1	= $88
+00048Cr 2               MF_SIGNATURE2	= $74
+00048Cr 2               
+00048Cr 2               CheckForMegaFlash:
+00048Cr 2               	; ROM activates MegaFlash if present; just check for presence
+00048Cr 2               	; Send GETDEVINFO command
+00048Cr 2  A9 10        	lda #MF_CMD_GETDEVINFO
+00048Er 2  8D C0 C0     	sta MF_CMDSTATUS
+000491r 2               	; Wait for busy to clear (with timeout)
+000491r 2  A2 64        	ldx #100
+000493r 2  2C C0 C0     :	bit MF_CMDSTATUS
+000496r 2  10 05        	bpl :+
+000498r 2  CA           	dex
+000499r 2  D0 F8        	bne :-
+00049Br 2               	; Timeout - MegaFlash not present
+00049Br 2  38           	sec
+00049Cr 2  60           	rts
+00049Dr 2               :	; Check for error (bit 6)
+00049Dr 2  70 10        	bvs CheckMegaFlashFail
+00049Fr 2               	; Verify signature bytes
+00049Fr 2  AD C1 C0     	lda MF_PARAM
+0004A2r 2  C9 88        	cmp #MF_SIGNATURE1
+0004A4r 2  D0 09        	bne CheckMegaFlashFail
+0004A6r 2  AD C1 C0     	lda MF_PARAM
+0004A9r 2  C9 74        	cmp #MF_SIGNATURE2
+0004ABr 2  D0 02        	bne CheckMegaFlashFail
+0004ADr 2               	; MegaFlash found
+0004ADr 2  18           	clc
+0004AEr 2  60           	rts
+0004AFr 2               CheckMegaFlashFail:
+0004AFr 2  38           	sec
+0004B0r 2  60           	rts
+0004B1r 2               
+0004B1r 2               GetTimeMegaFlash:
+0004B1r 2               	; Request ProDOS 2.5 format time (includes seconds)
+0004B1r 2  A9 18        	lda #MF_CMD_GETPRODOS25TIME
+0004B3r 2  8D C0 C0     	sta MF_CMDSTATUS
+0004B6r 2               	; Wait for completion (bounded — slinky or non-MF hardware can leave busy stuck)
+0004B6r 2  A2 64        	ldx #100
+0004B8r 2  2C C0 C0     :	bit MF_CMDSTATUS
+0004BBr 2  10 06        	bpl GetTimeMFReady
+0004BDr 2  CA           	dex
+0004BEr 2  D0 F8        	bne :-
+0004C0r 2  4C rr rr     	jmp GetTimeMFDone	; timeout — do not read param stream
+0004C3r 2               GetTimeMFReady:
+0004C3r 2  70 47        	bvs GetTimeMFDone	; Error - skip update
+0004C5r 2               	; Read 6 bytes: [0]=4ms units, [1]=sec, [2-3]=time word, [4-5]=date
+0004C5r 2  AD C1 C0     	lda MF_PARAM		; t4ms - discard
+0004C8r 2  AD C1 C0     	lda MF_PARAM		; seconds
+0004CBr 2  8D rr rr     	sta MFTime+1
+0004CEr 2  AD C1 C0     	lda MF_PARAM		; time lo
+0004D1r 2  8D rr rr     	sta MFTime+2
+0004D4r 2  AD C1 C0     	lda MF_PARAM		; time hi
+0004D7r 2  8D rr rr     	sta MFTime+3
+0004DAr 2  AD C1 C0     	lda MF_PARAM		; date lo - discard
+0004DDr 2  AD C1 C0     	lda MF_PARAM		; date hi - discard
+0004E0r 2               	; Extract: min = time & $3F, hour = (time >> 6) & $1F
+0004E0r 2  AD rr rr     	lda MFTime+2
+0004E3r 2  29 3F        	and #$3F
+0004E5r 2  8D rr rr     	sta TimeNow+1		; Minutes
+0004E8r 2  AD rr rr     	lda MFTime+2
+0004EBr 2  4A           	lsr a
+0004ECr 2  4A           	lsr a
+0004EDr 2  4A           	lsr a
+0004EEr 2  4A           	lsr a
+0004EFr 2  4A           	lsr a
+0004F0r 2  4A           	lsr a
+0004F1r 2  8D rr rr     	sta MFTime+0		; temp: hour low 2 bits
+0004F4r 2  AD rr rr     	lda MFTime+3
+0004F7r 2  29 07        	and #$07			; hour bits from high byte
+0004F9r 2  0A           	asl a
+0004FAr 2  0A           	asl a
+0004FBr 2  0D rr rr     	ora MFTime+0
+0004FEr 2  8D rr rr     	sta TimeNow		; Hours
+000501r 2  AD rr rr     	lda MFTime+1
+000504r 2  8D rr rr     	sta TimeNow+2		; Seconds
+000507r 2  A9 00        	lda #$00
+000509r 2  8D rr rr     	sta TimeNow+3		; Hundredths (MegaFlash has 4ms, we use 0 for simplicity)
+00050Cr 2               GetTimeMFDone:
+00050Cr 2  60           	rts
+00050Dr 2               
+00050Dr 2  xx xx xx xx  MFTime:	.res 4		; Temp: [0]=hour bits, [1]=sec, [2]=time_lo, [3]=time_hi
+000511r 2               
+000511r 2               CheckForNoSlotClock:
+000511r 2  20 rr rr     	jsr PrepNoSlotClock	; Prepare the driver
+000514r 2  20 rr rr     	jsr NSCEntry		; Call it to get the time
+000517r 2  AD rr rr     	lda L0304		; Signature will be non-zero if NSC exists
+00051Ar 2  18           	clc
+00051Br 2  D0 01        	bne :+
+00051Dr 2  38           	sec
+00051Er 2  60           :	rts
+00051Fr 2               
+00051Fr 2               PrepNoSlotClock:
+00051Fr 2               ;---------------------------------------------------------
+00051Fr 2               ; Look for a NoSlotClock
+00051Fr 2               ;---------------------------------------------------------
+00051Fr 2               
+00051Fr 2               L3A3A	= $3A3A
+00051Fr 2               LDA9A	= $DA9A
+00051Fr 2               LDD6C	= $DD6C
+00051Fr 2               LDEBE	= $DEBE
+00051Fr 2               LDFE3	= $DFE3
+00051Fr 2               LE3E9	= $E3E9
+00051Fr 2               
+00051Fr 2  A9 00        L0260:	lda #$00
+000521r 2  8D rr rr     	sta L02DE
+000524r 2  A9 03        	lda #$03
+000526r 2  09 C0        L0267:  ora #$C0
+000528r 2  8D rr rr     	sta L031F
+00052Br 2  8D rr rr     L026C:  sta L0322
+00052Er 2  8D rr rr     	sta L0331
+000531r 2  8D rr rr     	sta L033F
+000534r 2  A9 03        	lda #$03
+000536r 2  8D rr rr     	sta L02DF
+000539r 2  D0 16        	bne L0292
+00053Br 2  00           	brk
+00053Cr 2  00           	brk
+00053Dr 2  00           	brk
+00053Er 2  00           L027F:  brk
+00053Fr 2  00           L0280:  brk
+000540r 2  00           	brk
+000541r 2  2F           	.byte $2F
+000542r 2  00           L0283:  brk
+000543r 2  00           	brk
+000544r 2  2F           	.byte $2F
+000545r 2  00           	brk
+000546r 2  00           	brk
+000547r 2  20 00 00     	jsr $0000
+00054Ar 2  3A           	.byte $3A
+00054Br 2  00           	brk
+00054Cr 2  00           	brk
+00054Dr 2  3A           	.byte $3A
+00054Er 2  00           	brk
+00054Fr 2  00           	brk
+000550r 2  8D           	.byte $8D
+000551r 2  20 rr rr     L0292:  jsr NSCEntry
+000554r 2  A2 07        	ldx #$07
+000556r 2  BD rr rr     L0297:  lda L0303,x
+000559r 2  DD rr rr     	cmp L02E0,x
+00055Cr 2  90 0F        	bcc L02AE
+00055Er 2  DD rr rr     	cmp L02E8,x
+000561r 2  B0 0A        	bcs L02AE
+000563r 2  CA           	dex
+000564r 2  10 F0        	bpl L0297
+000566r 2  CE rr rr     	dec L02DF
+000569r 2  D0 E6        	bne L0292
+00056Br 2  18           	clc
+00056Cr 2  60           	rts
+00056Dr 2  EE rr rr     L02AE:  inc L02DE
+000570r 2  AD rr rr     	lda L02DE
+000573r 2  C9 08        	cmp #$08
+000575r 2  90 AF        	bcc L0267
+000577r 2  D0 1D        	bne L02D7
+000579r 2  A9 C0        	lda #$C0
+00057Br 2  A0 15        	ldy #$15
+00057Dr 2  8D rr rr     	sta L031B
+000580r 2  8C rr rr     	sty L031A
+000583r 2  A0 07        	ldy #$07
+000585r 2  8D rr rr     	sta L031F
+000588r 2  8C rr rr     	sty L031E
+00058Br 2  88           	dey
+00058Cr 2  8D rr rr     	sta L036F
+00058Fr 2  8C rr rr     	sty L036E
+000592r 2  A9 C8        	lda #$C8
+000594r 2  D0 95        	bne L026C
+000596r 2  A9 4C        L02D7:  lda #$4C
+000598r 2  8D rr rr     	sta L0316
+00059Br 2  38           	sec
+00059Cr 2  60           	rts
+00059Dr 2  00           L02DE:  brk
+00059Er 2  00           L02DF:  brk
+00059Fr 2  00           L02E0:  brk
+0005A0r 2  01 01 01     	.byte $01, $01, $01
+0005A3r 2  00           	brk
+0005A4r 2  00           	brk
+0005A5r 2  00           	brk
+0005A6r 2  00           	brk
+0005A7r 2  64 0D 20 38  L02E8:  .byte $64, $0d, $20, $38, $98,$3c, $3c, $64
+0005ABr 2  98 3C 3C 64  
+0005AFr 2  00           	brk
+0005B0r 2  00           	brk
+0005B1r 2  00           	brk
+0005B2r 2  00           	brk
+0005B3r 2  00           	brk
+0005B4r 2  00           	brk
+0005B5r 2  00           	brk
+0005B6r 2  00           	brk
+0005B7r 2  00           	brk
+0005B8r 2  00           	brk
+0005B9r 2  00           	brk
+0005BAr 2  00           	brk
+0005BBr 2  00           	brk
+0005BCr 2  00           	brk
+0005BDr 2  00           	brk
+0005BEr 2  00           	brk
+0005BFr 2  18           	clc
+0005C0r 2  90           	.byte $90
+0005C1r 2  09           L0302:	.byte $09
+0005C2r 2  00           L0303:  brk
+0005C3r 2  00           L0304:	brk
+0005C4r 2  00           	brk
+0005C5r 2  00           	brk
+0005C6r 2  00           L0307:	brk
+0005C7r 2  00           L0308:	brk
+0005C8r 2  00           L0309:	brk
+0005C9r 2  00           L030A:	brk
+0005CAr 2               NSCEntry:
+0005CAr 2  38           	sec
+0005CBr 2  08           L030C:	php
+0005CCr 2  78           	sei
+0005CDr 2  A9 00        	lda #$00
+0005CFr 2  8D rr rr     	sta L0304
+0005D2r 2               ;	sta L0280
+0005D2r 2  AD rr rr     L0316:	lda L03A3
+0005D5r 2  AD           	.byte $AD
+0005D6r 2  FF           L031A:	.byte $FF
+0005D7r 2  CF           L031B:	.byte $CF
+0005D8r 2  48           	pha
+0005D9r 2  8D           	.byte $8D
+0005DAr 2  00           L031E:	brk
+0005DBr 2  C3           L031F:  .byte $C3
+0005DCr 2  AD           	.byte $AD
+0005DDr 2  04           	.byte $04
+0005DEr 2  C3           L0322:	.byte $C3
+0005DFr 2  A2 08        	ldx #$08
+0005E1r 2  BD rr rr     L0325:	lda L03BF,x
+0005E4r 2  38           	sec
+0005E5r 2  6A           	ror a
+0005E6r 2  48           L032A:	pha
+0005E7r 2  A9 00        	lda #$00
+0005E9r 2  2A           	rol a
+0005EAr 2  A8           	tay
+0005EBr 2  B9           	.byte $B9
+0005ECr 2  00           	brk
+0005EDr 2  C3           L0331:	.byte $C3
+0005EEr 2  68           	pla
+0005EFr 2  4A           	lsr a
+0005F0r 2  D0 F4        	bne L032A
+0005F2r 2  CA           	dex
+0005F3r 2  D0 EC        	bne L0325
+0005F5r 2  A2 08        	ldx #$08
+0005F7r 2  A0 08        L033B:	ldy #$08
+0005F9r 2  AD           L033D:	.byte $AD
+0005FAr 2  04           	.byte $04
+0005FBr 2  C3           L033F:	.byte $C3
+0005FCr 2  6A           	ror a
+0005FDr 2  66 42        	ror $42
+0005FFr 2  88           	dey
+000600r 2  D0 F7        	bne L033D
+000602r 2  A5 42        	lda $42
+000604r 2  9D rr rr     	sta L027F,x
+000607r 2  4A           	lsr a
+000608r 2  4A           	lsr a
+000609r 2  4A           	lsr a
+00060Ar 2  4A           	lsr a
+00060Br 2  A8           	tay
+00060Cr 2  A5 42        	lda $42
+00060Er 2  C0 00        	cpy #$00
+000610r 2  F0 08        	beq L035E
+000612r 2  29 0F        	and #$0F
+000614r 2  18           	clc
+000615r 2  69 0A        L0359:	adc #$0A
+000617r 2  88           	dey
+000618r 2  D0 FB        	bne L0359
+00061Ar 2  9D rr rr     L035E:	sta L0302,x
+00061Dr 2  CA           	dex
+00061Er 2  D0 D7        	bne L033B
+000620r 2  68           	pla
+000621r 2  30 03        	bmi L0370
+000623r 2  8D           	.byte $8D
+000624r 2  FF           L036E:	.byte $FF
+000625r 2  CF           L036F:	.byte $CF
+000626r 2  A0 11        L0370:	ldy #$11
+000628r 2  A2 06        	ldx #$06
+00062Ar 2  28           L03A3:	plp
+00062Br 2  B0 19        	bcs L03BF
+00062Dr 2  20 BE DE     	jsr LDEBE
+000630r 2  20 E3 DF     	jsr LDFE3
+000633r 2  20 6C DD     	jsr LDD6C
+000636r 2  85 85        	sta $85
+000638r 2  84 86        	sty $86
+00063Ar 2  A9 80        	lda #$80
+00063Cr 2  A0 02        	ldy #$02
+00063Er 2  A2 8D        	ldx #$8D
+000640r 2  20 E9 E3     	jsr LE3E9
+000643r 2  20 9A DA     	jsr LDA9A
+000646r 2  60           L03BF:	rts
+000647r 2  5C           	.byte $5C
+000648r 2  A3           	.byte $A3
+000649r 2  3A           	.byte $3A
+00064Ar 2  C5 5C        	cmp $5C
+00064Cr 2  A3           	.byte $A3
+00064Dr 2  3A           	.byte $3A
+00064Er 2  C5 2F        L03C7:	cmp $2F
+000650r 2  2F           	.byte $2F
+000651r 2  20 3A 3A     	jsr L3A3A
+000654r 2  8D 00 00     	.byte $8D, $00, $00
+000657r 2               
+000657r 2               CheckForSlottedClocks:
+000657r 2               ;---------------------------------------------------------
+000657r 2               ; Look for clocks via signature in firmware
+000657r 2               ;---------------------------------------------------------
+000657r 2  38           	sec
+000658r 2               FindClockSlot:
+000658r 2  A9 00        	lda #$00
+00065Ar 2  A8           	tay
+00065Br 2  85 07        	sta UTILPTR
+00065Dr 2  8D rr rr     	sta ClockSlot
+000660r 2  A2 07        	ldx #$07 ; Slot number
+000662r 2               FindClockSlotLoop:
+000662r 2  18           	clc
+000663r 2  8A           	txa
+000664r 2  69 C0        	adc #$c0
+000666r 2  85 08        	sta UTILPTR+1
+000668r 2  A0 00        	ldy #$00		; Lookup offset
+00066Ar 2  B1 07        	lda (UTILPTR),y
+00066Cr 2  C9 08        	cmp #$08		; Is $Cn00 == $08?
+00066Er 2  D0 17        	bne NotThunder
+000670r 2  C8           	iny			; Lookup offset
+000671r 2  B1 07        	lda (UTILPTR),y
+000673r 2  C9 78        	cmp #$78		; Is $Cn01 == $78?
+000675r 2  D0 10        	bne NotThunder
+000677r 2  C8           	iny			; Lookup offset
+000678r 2  B1 07        	lda (UTILPTR),y
+00067Ar 2  C9 28        	cmp #$28		; Is $Cn02 == $28?
+00067Cr 2  D0 09        	bne NotThunder
+00067Er 2               ; Ok, we have a set of signature bytes for a Thunderclock.
+00067Er 2  8E rr rr     	stx ClockSlot
+000681r 2  20 rr rr     	jsr PrepThunderclock
+000684r 2  4C rr rr     	jmp FindClockSlotDone
+000687r 2               NotThunder:
+000687r 2               	; Check for other slotted clocks
+000687r 2               FindClockSlotNext:
+000687r 2  CA           	dex
+000688r 2  D0 D8        	bne FindClockSlotLoop
+00068Ar 2               ; All done now, return with carry clear if we found a clock
+00068Ar 2               FindClockSlotDone:
+00068Ar 2  38           	sec
+00068Br 2  AD rr rr     	lda ClockSlot
+00068Er 2  F0 01        	beq :+
+000690r 2  18           	clc
+000691r 2  60           :	rts
+000692r 2  00           ClockSlot:	.byte 0
+000693r 2               
+000693r 2               PrepThunderclock:
+000693r 2               ;---------------------------------------------------------
+000693r 2               ; Patch the entry point of GetTime to the Thunderclock version
+000693r 2               ;---------------------------------------------------------
+000693r 2  A9 rr        	lda #<GetTimeThunderclock
+000695r 2  8D rr rr     	sta GetTime+1
+000698r 2  A9 rr        	lda #>GetTimeThunderclock
+00069Ar 2  8D rr rr     	sta GetTime+2
+00069Dr 2  60           	rts
+00069Er 2               
+00069Er 2  60           	rts
+00069Fr 2               
+00069Fr 2               
+00069Fr 2               GetTimeThunderclock:
+00069Fr 2               ;---------------------------------------------------------
+00069Fr 2               ; Get the current time from a Thunderclock - and convert from BCD
+00069Fr 2               ;---------------------------------------------------------
+00069Fr 2  AD rr rr     	lda ClockSlot
+0006A2r 2  0A           	asl a
+0006A3r 2  0A           	asl a
+0006A4r 2  0A           	asl a
+0006A5r 2  0A           	asl a
+0006A6r 2  A8           	tay
+0006A7r 2  A9 18        	lda #$18
+0006A9r 2  20 rr rr     	jsr L701B
+0006ACr 2  A9 08        	lda #$08
+0006AEr 2  20 rr rr     	jsr L701B
+0006B1r 2  A2 0A        	ldx #$0A
+0006B3r 2  20 rr rr     L7011:	jsr L7033
+0006B6r 2  9D rr rr     	sta L7069,x
+0006B9r 2  CA           	dex
+0006BAr 2  D0 F7        	bne L7011
+0006BCr 2  18           	clc		; Convert from BCD and copy out time
+0006BDr 2  AD rr rr     	lda TKH1	; Multiply 10s of hours by 10, add to units
+0006C0r 2  A2 0A        	ldx #$0a
+0006C2r 2  6D rr rr     :	adc TKH2
+0006C5r 2  CA           	dex
+0006C6r 2  D0 FA        	bne :-
+0006C8r 2  AD rr rr     	lda TKH2	; Hours
+0006CBr 2  8D rr rr     	sta TimeNow
+0006CEr 2  18           	clc
+0006CFr 2  AD rr rr     	lda TKM1	; Multiply 10s of minutes by 10, add to units
+0006D2r 2  A2 0A        	ldx #$0a
+0006D4r 2  6D rr rr     :	adc TKM2
+0006D7r 2  CA           	dex
+0006D8r 2  D0 FA        	bne :-
+0006DAr 2  AD rr rr     	lda TKM2	; Minutes
+0006DDr 2  8D rr rr     	sta TimeNow+1
+0006E0r 2  18           	clc
+0006E1r 2  AD rr rr     	lda TKS1	; Multiply 10s of seconds by 10, add to units
+0006E4r 2  A2 0A        	ldx #$0a
+0006E6r 2  6D rr rr     :	adc TKS2
+0006E9r 2  CA           	dex
+0006EAr 2  D0 FA        	bne :-
+0006ECr 2  AD rr rr     	lda TKS2	; Seconds
+0006EFr 2  8D rr rr     	sta TimeNow+2
+0006F2r 2  A9 00        	lda #$00	; Hundredths (not available on Thunderclock)
+0006F4r 2  8D rr rr     	sta TimeNow+3
+0006F7r 2  60           	rts
+0006F8r 2  99 80 C0     L701B:	sta $C080,y
+0006FBr 2  09 04        	ora #$04
+0006FDr 2  99 80 C0     	sta $C080,y
+000700r 2  20 rr rr     	jsr L702B
+000703r 2  49 04        	eor #$04
+000705r 2  99 80 C0     	sta $C080,y
+000708r 2  20 rr rr     L702B:	jsr L702E
+00070Br 2  48           L702E:	pha
+00070Cr 2  48           	pha
+00070Dr 2  68           	pla
+00070Er 2  68           	pla
+00070Fr 2  60           	rts
+000710r 2  48           L7033:	pha
+000711r 2  A9 04        	lda #$04
+000713r 2  8D rr rr     	sta L7068
+000716r 2  A9 00        	lda #$00
+000718r 2  8D rr rr     	sta L7069
+00071Br 2  B9 80 C0     L703E:	lda $C080,y
+00071Er 2  0A           	asl a
+00071Fr 2  6E rr rr     	ror L7069
+000722r 2  68           	pla
+000723r 2  48           	pha
+000724r 2  29 01        	and #$01
+000726r 2  99 80 C0     	sta $C080,y
+000729r 2  09 02        	ora #$02
+00072Br 2  99 80 C0     	sta $C080,y
+00072Er 2  49 02        	eor #$02
+000730r 2  99 80 C0     	sta $C080,y
+000733r 2  68           	pla
+000734r 2  6A           	ror a
+000735r 2  48           	pha
+000736r 2  CE rr rr     	dec L7068
+000739r 2  D0 E0        	bne L703E
+00073Br 2  68           	pla
+00073Cr 2  AD rr rr     	lda L7069
+00073Fr 2  18           	clc
+000740r 2  6A           	ror a
+000741r 2  6A           	ror a
+000742r 2  6A           	ror a
+000743r 2  6A           	ror a
+000744r 2  60           	rts
+000745r 2  00           L7068:	brk
+000746r 2  00           L7069:	brk
+000747r 2  00           	brk
+000748r 2  00           	brk
+000749r 2  00           	brk
+00074Ar 2  00           	brk
+00074Br 2  00           TKH1:	brk
+00074Cr 2  00           TKH2:	brk
+00074Dr 2  00           TKM1:	brk
+00074Er 2  00           TKM2:	brk
+00074Fr 2  00           TKS1:	brk
+000750r 2  00           TKS2:	brk
+000751r 2               
+000751r 1               
+000751r 1               ; A2Speed wrapper for SPF MegaFlash time read:
+000751r 1               ; SPF returns a first byte in 4 ms units and currently zeros TimeNow+3.
+000751r 1               ; Convert that 0..249 range to exact hundredths via a lookup table.
+000751r 1               GetTimeMegaFlashA2:
+000751r 1  A9 18                lda     #MF_CMD_GETPRODOS25TIME
+000753r 1  8D C0 C0             sta     MF_CMDSTATUS
+000756r 1               @mf_wait:
+000756r 1  2C C0 C0             bit     MF_CMDSTATUS
+000759r 1  30 FB                bmi     @mf_wait
+00075Br 1  70 4E                bvs     @mf_done
+00075Dr 1  AD C1 C0             lda     MF_PARAM                ; t4ms (0..249 in 4 ms units)
+000760r 1  8D rr rr             sta     MFTimeA2+0
+000763r 1  AD C1 C0             lda     MF_PARAM                ; seconds
+000766r 1  8D rr rr             sta     MFTimeA2+1
+000769r 1  AD C1 C0             lda     MF_PARAM                ; time lo
+00076Cr 1  8D rr rr             sta     MFTimeA2+2
+00076Fr 1  AD C1 C0             lda     MF_PARAM                ; time hi
+000772r 1  8D rr rr             sta     MFTimeA2+3
+000775r 1  AD C1 C0             lda     MF_PARAM                ; date lo - discard
+000778r 1  AD C1 C0             lda     MF_PARAM                ; date hi - discard
+00077Br 1  AE rr rr             ldx     MFTimeA2+0
+00077Er 1  BD rr rr             lda     MegaFlashHundredths,x
+000781r 1  8D rr rr             sta     TimeNow+3               ; Hundredths
+000784r 1  AD rr rr             lda     MFTimeA2+2
+000787r 1  29 3F                and     #$3F
+000789r 1  8D rr rr             sta     TimeNow+1               ; Minutes
+00078Cr 1  AD rr rr             lda     MFTimeA2+2
+00078Fr 1  4A                   lsr     a
+000790r 1  4A                   lsr     a
+000791r 1  4A                   lsr     a
+000792r 1  4A                   lsr     a
+000793r 1  4A                   lsr     a
+000794r 1  4A                   lsr     a
+000795r 1  8D rr rr             sta     MFTimeA2+0              ; temp: hour low 2 bits
+000798r 1  AD rr rr             lda     MFTimeA2+3
+00079Br 1  29 07                and     #$07
+00079Dr 1  0A                   asl     a
+00079Er 1  0A                   asl     a
+00079Fr 1  0D rr rr             ora     MFTimeA2+0
+0007A2r 1  8D rr rr             sta     TimeNow                 ; Hours
+0007A5r 1  AD rr rr             lda     MFTimeA2+1
+0007A8r 1  8D rr rr             sta     TimeNow+2               ; Seconds
+0007ABr 1               @mf_done:
+0007ABr 1  60                   rts
+0007ACr 1               
+0007ACr 1               MFTimeA2:
+0007ACr 1  xx xx xx xx          .res    4
+0007B0r 1               
+0007B0r 1               MegaFlashHundredths:
+0007B0r 1  00 00 00 01          .repeat 250, I
+0007B4r 1  01 02 02 02  
+0007B8r 1  03 03 04 04  
+0008AAr 1                       .byte   (I * 4) / 10
+0008AAr 1                       .endrepeat
+0008AAr 1               
+0008AAr 1               CLOCK_KIND:
+0008AAr 1  xx                   .res    1
+0008ABr 1               ZPSAVE:
+0008ABr 1  xx xx xx xx          .res    256
+0008AFr 1  xx xx xx xx  
+0008B3r 1  xx xx xx xx  
+0009ABr 1               TimeNow:
+0009ABr 1  xx xx xx xx          .res    4
+0009ABr 1               
